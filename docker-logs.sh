@@ -1,0 +1,1 @@
+docker compose logs -f lobe casdoor rustfs grafana tempo prometheus cloudflared --tail 200

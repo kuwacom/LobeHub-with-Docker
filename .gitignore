@@ -1,7 +1,32 @@
-origin
-data
-.vscode
-
+# Local environment
 .env
+.env.local
+.env.*.local
+init_data.json
 
+# Editor and workspace
+.idea/
+.vscode/
+origin/
+
+# OS metadata
+.DS_Store
+Desktop.ini
+Thumbs.db
+
+# Backups and logs
 *.bk
+*.log
+
+# Generated exports and secrets
+scripts/generated-model-provider.env
+scripts/out.jsonl
+
+# Persistent service data
+postgresql/data/
+redis/data/
+rustfs/data/
+rustfs/logs/
+grafana/data/
+prometheus/data/
+tempo/data/

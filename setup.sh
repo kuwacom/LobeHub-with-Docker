@@ -1,890 +1,725 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# ==================
-# == 環境設定 ==
-# ==================
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="${ROOT_DIR}/.env"
+ENV_EXAMPLE_FILE="${ROOT_DIR}/.env.example"
+INIT_DATA_TEMPLATE_FILE="${ROOT_DIR}/casdoor/init_data.json.exmaple"
+INIT_DATA_FILE="${ROOT_DIR}/casdoor/init_data.json"
+COMPOSE_FILE="${ROOT_DIR}/docker-compose.yml"
 
-# 実行環境を判定し、sed -i の差異を吸収する
-# ref: https://github.com/lobehub/lobe-chat/pull/5247
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    # macOS
-    SED_INPLACE_ARGS=('-i' '')
-else
-    # macOS 以外
-    SED_INPLACE_ARGS=('-i')
-fi
+DEFAULT_JWKS_KEY='{"keys":[{"d":"PVoFyqyrGstB8wU52S7gqqQQdZLtin_thcEM0nrNtqp9U-NlKLlhgEcWp5t89ycgvhsAzmrRbezGj4JBTr3jn7eWdwQpPJNYiipnsgeJn0pwsB0H2dMqtavxinoPVXkMTOuGHMTFhhyguFBw2JbIL0PTQUcUlXjv40OoJpYHZeggSxgfV-TuxjwW8Ll4-n84M5IOi6A53RvioE-Hm1iyIc2XLBCfyOu-SbAQYi8HzrA64kCxobAB0peLQMiAzfZmwPKiGOhnhKrAlYmG02qFnbUYiJu_-AXwsAyGv9S9i6dwK7QXaGGWYyis8LlPpd_JmPrBnrWomwDlI045NUMWZQ","dp":"OSXI2NBBZl2r0Dpf4-1z44A_jC5lOyXtJhXQYnSXy5eIuxTJcEtkUYagGEwnREO4Q3t-4J-lT_6Y71M1ZlgKG1upwfw1O4aE3vGpHOik9iZYYCjA8fe5uBfOpX1ELmOtHNoHRhMtyjuPxSFXLlSp3bgcF1f3F40ClukdvXCx0Mc","dq":"m6hNdfj-F8E_7nUlX2nG95OffkFrhHTo67ML9aPgpvFwBlzg-hk5LwtxMfUzngqWF78TMl0JDm7vS1bz0xlWqXqu8pFPoTUnUoWgYfvuyHLBwR5TgccQkfoKbkSMzYNy8VJPXZeyIjVXsW98tZvj-NZF-M9Pke_EWJm-jjXCu_8","e":"AQAB","kty":"RSA","n":"piffosMS0HOSgsSr_zQkXYaQt1kOCD73VR0b2XJD6UdQCKPbnBOzTIuA_xowX61QVsl5pCZLTw8ERC3r2Nlxj5Rp_H6RuOT7ioUqlbnxSGnfuAn8dFupY3A-sf9HVDOvtJdlS-nO9yA4wWU-A50zZ1Mf0pPZlUZE6dUQfsJFi5yXaNAybyk3U4VpMO_SXAilWEHVhiO0F0ccpJMCkT47AeXmYH9MlWwIGcay0UiAsdrs8J-q1arZ7Mbq0oxHmUXJG0vwRvAL8KnCEi8cJ3e2kKCRcr-BQCujsHUyUl6f_ATwSVuTHdAR1IzIcW37v27h3WQK_v0ffQM1NstamDX5vQ","p":"4myVm2M5cZGvVXsOmWUTUG87VC1GlQcL5tmMNSGSpQCL8yWZ1vANkmCxSMptrKB4dU9DAB3On6_oMhW1pJ3uYNGSW49BcmJoLkiWKeg5zWFnKPQNuThQmY1sCCubtKhBQgaYUr7TVzN9smrDV3zCu9MlRl-XPwnEmWaDII3g-f8","q":"u9v4IOEsb4l2Y3eWKE2bwJh5fJRR4vivaYA7U-1-OpvDwB3A48Rey9IL1ucXqE5G1Du8BtijPm5oSAar5uzrjtg1bZ9gevif6DnBGaIRE7LnSrUsTPfZwzntJ1rTaGiVe_pAdnTKXXaH6DxygXxH4wvGgA44V3TTfBXQUcjzdEM","qi":"lDBnSPKkRnYqQvbqVD1LxzqBPEeqEA3GyCqMj6fIZNgoEaBSLi0TSsUyGZ5mahX3KO35vKAZa5jvGjhvUGUiXycq8KvRZdeGK45vJdwZT2TiXiDwo9IQgJcbFMpxaB9DhjX2x0yqxgUY5ca75jLqbMuKBKBN0PVqIr9jlHkR8_s","use":"sig","kid":"6823046760c5d460","alg":"RS256"}]}'
 
-# =========================
-# == 引数の初期化と解析 ==
-# =========================
-
-# 引数の既定値
-# -l / --lang: 表示言語。既定値は日本語
-LANGUAGE="ja_JP"
-
-# --url: ファイルのダウンロード元
-SOURCE_URL="https://raw.githubusercontent.com/lobehub/lobe-chat/main"
-
-# --host: デプロイ先のホスト
+ENV_CREATED=0
+PYTHON_BIN=""
 HOST=""
+MODE=""
+PROTOCOL=""
+APP_DOMAIN=""
+CASDOOR_DOMAIN=""
+RUSTFS_DOMAIN=""
+VALIDATE_COMPOSE="ask"
+REGENERATE_SECRETS="ask"
+
+CASDOOR_CLIENT_ID_DEFAULT=""
+CASDOOR_CLIENT_SECRET_DEFAULT=""
+CASDOOR_WEBHOOK_SECRET_DEFAULT="casdoor-secret"
+
+LOBE_PORT="3210"
+RUSTFS_PORT="9000"
+RUSTFS_ADMIN_PORT="9001"
+CASDOOR_PORT="8000"
+GRAFANA_PORT="3000"
+
+APP_URL=""
+S3_ENDPOINT_URL=""
+CASDOOR_ISSUER_URL=""
+CASDOOR_ORIGIN_URL=""
+RUSTFS_CONSOLE_URL=""
+GRAFANA_URL=""
 
 usage() {
-    echo "使い方: $0 [-l 言語|--lang 言語] [--url 取得元URL] [--host ホスト名またはIP]" >&2
-    echo "対応言語: ja_JP, en_US, zh_CN" >&2
+  cat <<'EOF'
+Usage: bash ./setup.sh [options]
+
+Options:
+  --host <host>                 Port mode で使うホスト名または IP
+  --mode <local|port|domain>   デプロイモードを指定
+  --protocol <http|https>      Domain mode のプロトコルを指定
+  --app-domain <domain>        Domain mode の LobeHub ドメインを指定
+  --casdoor-domain <domain>    Domain mode の Casdoor ドメインを指定
+  --rustfs-domain <domain>     Domain mode の RustFS API ドメインを指定
+  --yes                        既定値で確認を進める
+  --no-validate                docker compose config の確認をスキップ
+  --regenerate-secrets         シークレットを再生成する
+  --no-regenerate-secrets      シークレットを再生成しない
+  -h, --help                   このヘルプを表示
+EOF
 }
 
-# 引数を解析する
-while getopts "l:-:" opt; do
-    case $opt in
-        l)
-            LANGUAGE=$OPTARG
-        ;;
-        -)
-            case "${OPTARG}" in
-                lang)
-                    LANGUAGE="${!OPTIND}"
-                    OPTIND=$(($OPTIND + 1))
-                ;;
-                url)
-                    SOURCE_URL="${!OPTIND}"
-                    OPTIND=$(($OPTIND + 1))
-                ;;
-                host)
-                    HOST="${!OPTIND}"
-                    OPTIND=$(($OPTIND + 1))
-                ;;
-                *)
-                    usage
-                    exit 1
-                ;;
-            esac
-        ;;
-        *)
-            usage
-            exit 1
-        ;;
-    esac
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --host)
+      HOST="${2:-}"
+      shift 2
+      ;;
+    --mode)
+      MODE="${2:-}"
+      shift 2
+      ;;
+    --protocol)
+      PROTOCOL="${2:-}"
+      shift 2
+      ;;
+    --app-domain)
+      APP_DOMAIN="${2:-}"
+      shift 2
+      ;;
+    --casdoor-domain)
+      CASDOOR_DOMAIN="${2:-}"
+      shift 2
+      ;;
+    --rustfs-domain)
+      RUSTFS_DOMAIN="${2:-}"
+      shift 2
+      ;;
+    --yes)
+      VALIDATE_COMPOSE="yes"
+      REGENERATE_SECRETS="yes"
+      shift
+      ;;
+    --no-validate)
+      VALIDATE_COMPOSE="no"
+      shift
+      ;;
+    --regenerate-secrets)
+      REGENERATE_SECRETS="yes"
+      shift
+      ;;
+    --no-regenerate-secrets)
+      REGENERATE_SECRETS="no"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
 done
 
-#######################
-## 補助関数 ##
-#######################
-
-# 入力された言語コードを内部表現に正規化する
-normalize_language() {
-    case "$1" in
-        ja | ja_JP | ja-JP)
-            echo "ja_JP"
-        ;;
-        en | en_US | en-US)
-            echo "en_US"
-        ;;
-        zh | zh_CN | zh-CN)
-            echo "zh_CN"
-        ;;
-        *)
-            echo "ja_JP"
-        ;;
-    esac
+info() {
+  printf '[INFO] %s\n' "$1"
 }
 
-# 言語ごとのメッセージを表示する
-show_message() {
-    local key="$1"
-    case $key in
-        choose_language)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "请选择语言:"
-                    echo "(0) 日本語"
-                    echo "(1) English"
-                    echo "(2) 简体中文"
-                ;;
-                en_US)
-                    echo "Please choose a language:"
-                    echo "(0) Japanese"
-                    echo "(1) English"
-                    echo "(2) Simplified Chinese"
-                ;;
-                *)
-                    echo "表示言語を選択してください:"
-                    echo "(0) 日本語"
-                    echo "(1) English"
-                    echo "(2) 简体中文"
-                ;;
-            esac
-        ;;
-        downloading)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "正在下载文件..."
-                ;;
-                en_US)
-                    echo "Downloading files..."
-                ;;
-                *)
-                    echo "ファイルをダウンロードしています..."
-                ;;
-            esac
-        ;;
-        extracted_success)
-            case $LANGUAGE in
-                zh_CN)
-                    echo " 解压成功到目录："
-                ;;
-                en_US)
-                    echo " extracted successfully to directory: "
-                ;;
-                *)
-                    echo " の展開に成功しました。出力先: "
-                ;;
-            esac
-        ;;
-        extracted_failed)
-            case $LANGUAGE in
-                zh_CN)
-                    echo " 解压失败。"
-                ;;
-                en_US)
-                    echo " extraction failed."
-                ;;
-                *)
-                    echo " の展開に失敗しました。"
-                ;;
-            esac
-        ;;
-        file_not_exists)
-            case $LANGUAGE in
-                zh_CN)
-                    echo " 不存在。"
-                ;;
-                en_US)
-                    echo " does not exist."
-                ;;
-                *)
-                    echo " が存在しません。"
-                ;;
-            esac
-        ;;
-        security_secrect_regenerate)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "重新生成安全密钥..."
-                ;;
-                en_US)
-                    echo "Regenerate security secrets..."
-                ;;
-                *)
-                    echo "セキュリティシークレットを再生成しています..."
-                ;;
-            esac
-        ;;
-        security_secrect_regenerate_failed)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "无法重新生成安全密钥："
-                ;;
-                en_US)
-                    echo "Failed to regenerate security secrets: "
-                ;;
-                *)
-                    echo "セキュリティシークレットの再生成に失敗しました: "
-                ;;
-            esac
-        ;;
-        host_regenerate)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "✔️ 已更新部署模式配置"
-                ;;
-                en_US)
-                    echo "✔️ Updated deployment mode configuration"
-                ;;
-                *)
-                    echo "✔️ デプロイ設定を更新しました"
-                ;;
-            esac
-        ;;
-        host_regenerate_failed)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "无法重新生成服务器域名："
-                ;;
-                en_US)
-                    echo "Failed to regenerate server host: "
-                ;;
-                *)
-                    echo "サーバーホストの更新に失敗しました: "
-                ;;
-            esac
-        ;;
-        security_secrect_regenerate_report)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "安全密钥生成结果如下："
-                ;;
-                en_US)
-                    echo "Security secret generation results are as follows:"
-                ;;
-                *)
-                    echo "生成されたシークレットは次のとおりです:"
-                ;;
-            esac
-        ;;
-        tips_download_failed)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "$2 下载失败，请检查网络连接。"
-                ;;
-                en_US)
-                    echo "$2 Download failed, please check the network connection."
-                ;;
-                *)
-                    echo "$2 のダウンロードに失敗しました。ネットワーク接続を確認してください。"
-                ;;
-            esac
-        ;;
-        tips_already_installed)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "检测到您已经运行过 LobeHub，本安装程序只能完成初始化配置，并不能重复安装。如果你需要重新安装，请删除 data 和 s3_data 文件夹。"
-                ;;
-                en_US)
-                    echo "It is detected that you have run LobeHub. This installation program can only complete the initialization configuration and cannot be reinstalled. If you need to reinstall, please delete the data and s3_data folders."
-                ;;
-                *)
-                    echo "LobeHub はすでに初期化済みのようです。このセットアップスクリプトは再インストールには対応していません。再インストールする場合は data と s3_data フォルダを削除してください。"
-                ;;
-            esac
-        ;;
-        tips_run_command)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "您已经完成了所有配置。请运行以下命令启动 LobeHub 尝试启动："
-                ;;
-                en_US)
-                    echo "You have completed all configurations. Please run this command to start LobeHub:"
-                ;;
-                *)
-                    echo "設定が完了しました。LobeHub を起動するには次のコマンドを実行してください:"
-                ;;
-            esac
-        ;;
-        tips_if_want_searxng_logs)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "在上述命令中已屏蔽 SearXNG 的日志。如果你想查看 SearXNG 的日志，可以去除选项： --no-attach searxng 或运行以下命令："
-                ;;
-                en_US)
-                    echo "In the above command, the logs of SearXNG are blocked by default. If you want to view the logs of SearXNG, you can remove the option: --no-attach searxng or run the following command:"
-                ;;
-                *)
-                    echo "上記コマンドでは SearXNG のログを表示しません。SearXNG のログを確認したい場合は `--no-attach searxng` を外すか、次のコマンドを実行してください:"
-                ;;
-            esac
-        ;;
-        tips_if_run_normally)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "如果一切运行正常，你可以使用以下指令在 daemon 模式下启动 LobeHub:"
-                ;;
-                en_US)
-                    echo "If everything runs normally, you can use the following command to start LobeHub in daemon mode:"
-                ;;
-                *)
-                    echo "正常に動作することを確認できたら、次のコマンドでデーモンモード起動できます:"
-                ;;
-            esac
-        ;;
-        tips_regen_jwks)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "在完成部署测试后，请前往 https://lobehub.com/zh/docs/self-hosting/environment-variables/auth#jwks_key 生成新的 JWKS_KEY 并替换 .env 中的值，以确保安全性。"
-                ;;
-                en_US)
-                    echo "After completing the deployment test, please go to https://lobehub.com/docs/self-hosting/environment-variables/auth#jwks_key to generate a new JWKS_KEY and replace the value in .env to ensure security."
-                ;;
-                *)
-                    echo "デプロイ確認後は https://lobehub.com/docs/self-hosting/environment-variables/auth#jwks_key を参照して新しい JWKS_KEY を生成し、\`.env\` の値を置き換えてください。"
-                ;;
-            esac
-        ;;
-        tips_disable_registration)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "如需限制用户注册，可在 .env 中配置："
-                    echo "  - 使用 SSO 登录时，设置 AUTH_DISABLE_EMAIL_PASSWORD=1 可禁用邮箱密码注册"
-                    echo "  - 使用邮箱密码登录时，设置 AUTH_ALLOWED_EMAILS=user1@example.com,user2@example.com 可限制允许登录的邮箱"
-                ;;
-                en_US)
-                    echo "To restrict user registration, configure in .env:"
-                    echo "  - For SSO login: set AUTH_DISABLE_EMAIL_PASSWORD=1 to disable email/password registration"
-                    echo "  - For email/password login: set AUTH_ALLOWED_EMAILS=user1@example.com,user2@example.com to allow specific emails"
-                ;;
-                *)
-                    echo "ユーザー登録を制限したい場合は \`.env\` で次を設定できます:"
-                    echo "  - SSO ログイン時: AUTH_DISABLE_EMAIL_PASSWORD=1 を設定するとメールアドレス / パスワード登録を無効化できます"
-                    echo "  - メールアドレス / パスワードログイン時: AUTH_ALLOWED_EMAILS=user1@example.com,user2@example.com を設定すると許可したメールだけがログインできます"
-                ;;
-            esac
-        ;;
-        tips_show_documentation)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "完整的环境变量在'.env'中可以在文档中找到："
-                ;;
-                en_US)
-                    echo "Full environment variables in the '.env' can be found at the documentation on "
-                ;;
-                *)
-                    echo "\`.env\` で利用できる環境変数の一覧:"
-                ;;
-            esac
-        ;;
-        tips_show_documentation_url)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "https://lobehub.com/zh/docs/self-hosting/environment-variables"
-                ;;
-                en_US)
-                    echo "https://lobehub.com/docs/self-hosting/environment-variables"
-                ;;
-                *)
-                    echo "https://lobehub.com/docs/self-hosting/environment-variables"
-                ;;
-            esac
-        ;;
-        tips_no_executable)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "没有找到，请先安装。"
-                ;;
-                en_US)
-                    echo "not found, please install it first."
-                ;;
-                *)
-                    echo "が見つかりません。先にインストールしてください。"
-                ;;
-            esac
-        ;;
-        tips_allow_ports)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "请确保服务器以下端口未被占用且能被访问：3210, 9000, 9001"
-                ;;
-                en_US)
-                    echo "Please make sure the following ports on the server are not occupied and can be accessed: 3210, 9000, 9001"
-                ;;
-                *)
-                    echo "サーバーの次のポートが未使用で、外部からアクセス可能であることを確認してください: 3210, 9000, 9001"
-                ;;
-            esac
-        ;;
-        tips_auto_detected)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "已自动识别"
-                ;;
-                en_US)
-                    echo "Auto-detected"
-                ;;
-                *)
-                    echo "自動検出"
-                ;;
-            esac
-        ;;
-        tips_private_ip_detected)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "注意，当前识别到内网 IP，如果需要外部访问，请替换为公网 IP 地址"
-                ;;
-                en_US)
-                    echo "Note that the current internal IP is detected. If you need external access, please replace it with the public IP address."
-                ;;
-                *)
-                    echo "注意: 現在検出された IP はプライベートアドレスです。外部公開する場合はグローバル IP に置き換えてください。"
-                ;;
-            esac
-        ;;
-        tips_add_reverse_proxy)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "请在你的反向代理中完成域名到端口的映射："
-                ;;
-                en_US)
-                    echo "Please complete the mapping of domain to port in your reverse proxy:"
-                ;;
-                *)
-                    echo "リバースプロキシで次のドメインとポートを対応付けてください:"
-                ;;
-            esac
-        ;;
-        tips_no_docker_permission)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "WARN: 看起来当前用户没有 Docker 权限。"
-                    echo "使用 'sudo usermod -aG docker $USER' 为用户分配 Docker 权限（可能需要重新启动 shell）。"
-                ;;
-                en_US)
-                    echo "WARN: It look like the current user does not have Docker permissions."
-                    echo "Use 'sudo usermod -aG docker $USER' to assign Docker permissions to the user (may require restarting shell)."
-                ;;
-                *)
-                    echo "WARN: 現在のユーザーには Docker を操作する権限がないようです。"
-                    echo "Docker 権限を付与するには 'sudo usermod -aG docker $USER' を実行してください（シェルの再起動が必要な場合があります）。"
-                ;;
-            esac
-        ;;
-        tips_init_database_failed)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "无法初始化数据库"
-                ;;
-                en_US)
-                    echo "Failed to initialize the database."
-                ;;
-                *)
-                    echo "データベースを初期化できませんでした。"
-                ;;
-            esac
-        ;;
-        ask_regenerate_secrets)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "是否要重新生成安全密钥？"
-                ;;
-                en_US)
-                    echo "Do you want to regenerate security secrets?"
-                ;;
-                *)
-                    echo "セキュリティシークレットを再生成しますか？"
-                ;;
-            esac
-        ;;
-        ask_deploy_mode)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "请选择部署模式："
-                    echo "(0) 域名模式（访问时无需指明端口），需要使用反向代理服务 LobeHub, RustFS，并分别分配一个域名；"
-                    echo "(1) 端口模式（访问时需要指明端口，如使用IP访问，或域名+端口访问），需要放开指定端口；"
-                    echo "(2) 本地模式（仅供本地测试使用）"
-                    echo "如果你对这些内容疑惑，可以先选择使用本地模式进行部署，稍后根据文档指引再进行修改。"
-                    echo "https://lobehub.com/docs/self-hosting/server-database/docker-compose"
-                ;;
-                en_US)
-                    echo "Please select the deployment mode:"
-                    echo "(0) Domain mode (no need to specify the port when accessing), you need to use the reverse proxy service LobeHub, RustFS, and assign a domain name respectively;"
-                    echo "(1) Port mode (need to specify the port when accessing, such as using IP access, or domain name + port access), you need to open the specified port;"
-                    echo "(2) Local mode (for local testing only)"
-                    echo "If you are confused about these contents, you can choose to deploy in local mode first, and then modify according to the document guide later."
-                    echo "https://lobehub.com/docs/self-hosting/server-database/docker-compose"
-                ;;
-                *)
-                    echo "デプロイモードを選択してください:"
-                    echo "(0) ドメインモード: アクセス時にポート指定は不要です。LobeHub と RustFS をリバースプロキシ配下に置き、それぞれにドメインを割り当てます。"
-                    echo "(1) ポートモード: IP アドレスやドメイン + ポートでアクセスします。必要なポートを開放してください。"
-                    echo "(2) ローカルモード: ローカルテスト専用です。"
-                    echo "迷う場合は、まずローカルモードでデプロイしてから後でドキュメントに沿って調整できます。"
-                    echo "https://lobehub.com/docs/self-hosting/server-database/docker-compose"
-                ;;
-            esac
-        ;;
-        ask_host)
-            case $LANGUAGE in
-                zh_CN)
-                    echo " 部署IP/域名"
-                ;;
-                en_US)
-                    echo " Deploy IP/Domain"
-                ;;
-                *)
-                    echo " デプロイ先のIP/ドメイン"
-                ;;
-            esac
-        ;;
-        ask_domain)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "服务的域名（例如 $2 ，不要包含协议前缀）："
-                ;;
-                en_US)
-                    echo "The domain of the service (e.g. $2, do not include the protocol prefix):"
-                ;;
-                *)
-                    echo "サービス用のドメインを入力してください（例: $2、プロトコル接頭辞は不要です）:"
-                ;;
-            esac
-        ;;
-        ask_protocol)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "域名是否使用 https 协议？ (所有服务需要使用同一协议)"
-                ;;
-                en_US)
-                    echo "Does the domain use the https protocol? (All services need to use the same protocol)"
-                ;;
-                *)
-                    echo "ドメインでは https を使いますか？（すべてのサービスで同じプロトコルを使ってください）"
-                ;;
-            esac
-        ;;
-        ask_init_database)
-            case $LANGUAGE in
-                zh_CN)
-                    echo "是否初始化数据库？"
-                ;;
-                en_US)
-                    echo "Do you want to initialize the database?"
-                ;;
-                *)
-                    echo "データベースを初期化しますか？"
-                ;;
-            esac
-        ;;
-    esac
+warn() {
+  printf '[WARN] %s\n' "$1" >&2
 }
 
-# ファイルをダウンロードする
-download_file() {
-    wget "$1" -O "$2"
-    # 失敗したら即終了する
-    if [ $? -ne 0 ]; then
-        show_message "tips_download_failed" "$2"
-        exit 1
-    fi
-}
-
-print_centered() {
-    local text="$1"                                   # 表示する文字列
-    local color="${2:-reset}"                         # 色。既定値は reset
-    local term_width=$(tput cols)                     # ターミナル幅
-    local text_length=${#text}                        # 文字列長
-    local padding=$(((term_width - text_length) / 2)) # 左側の余白
-
-    # bash 3.x でも動く色コード
-    local color_code=""
-    local reset_code="\e[0m"
-    case "$color" in
-        black)   color_code="\e[30m" ;;
-        red)     color_code="\e[31m" ;;
-        green)   color_code="\e[32m" ;;
-        yellow)  color_code="\e[33m" ;;
-        blue)    color_code="\e[34m" ;;
-        magenta) color_code="\e[35m" ;;
-        cyan)    color_code="\e[36m" ;;
-        white)   color_code="\e[37m" ;;
-        reset)   color_code="\e[0m" ;;
-        *)
-            echo "無効な色が指定されました。使用可能: black red green yellow blue magenta cyan white reset"
-            return 1
-        ;;
-    esac
-
-    # 余白付きで中央寄せ表示
-    printf "%*s${color_code}%s${reset_code}\n" $padding "" "$text"
-}
-
-# 使い方:
-# ```sh
-#   ask "prompt" "default" "description"
-#   echo $ask_result
-# ```
-#   "prompt" ["description" "default"]
-ask() {
-    local prompt="$1"
-    local default="$2"
-    local description="$3"
-    # 説明がある場合だけ末尾にスペースを付与する
-    if [ -n "$description" ]; then
-        description="$description "
-    fi
-    local result
-    
-    if [ -n "$default" ]; then
-        read -p "$prompt [${description}${default}]: " result
-        result=${result:-$default}
-    else
-        read -p "$prompt: " result
-    fi
-    # 前後の空白を削除してグローバル変数に格納する
-    ask_result=$(echo "$result" | xargs)
-}
-
-####################
-## メイン処理 ##
-####################
-
-# ==============
-# == 変数定義 ==
-# ==============
-# ファイル一覧
-SUB_DIR="docker-compose/deploy"
-FILES=(
-    "$SUB_DIR/docker-compose.yml"
-    "$SUB_DIR/searxng-settings.yml"
-    "$SUB_DIR/bucket.config.json"
-)
-ENV_EXAMPLES=(
-    "$SUB_DIR/.env.zh-CN.example"
-    "$SUB_DIR/.env.example"
-)
-# 既定値
-RUSTFS_SECRET_KEY="YOUR_RUSTFS_PASSWORD"
-RUSTFS_HOST="localhost:9000"
-PROTOCOL="http"
-
-# 表示言語を正規化する
-LANGUAGE="$(normalize_language "$LANGUAGE")"
-
-section_download_files(){
-    # セットアップに必要なファイルを取得する
-    if ! command -v wget &> /dev/null ; then
-        echo "wget $(show_message 'tips_no_executable')"
-        exit 1
-    fi
-    
-    show_message "downloading"
-    download_file "$SOURCE_URL/${FILES[0]}" "docker-compose.yml"
-    download_file "$SOURCE_URL/${FILES[1]}" "searxng-settings.yml"
-    download_file "$SOURCE_URL/${FILES[2]}" "bucket.config.json"
-    # 指定言語に応じた .env サンプルを取得する
-    if [ "$LANGUAGE" = "zh_CN" ]; then
-        download_file "$SOURCE_URL/${ENV_EXAMPLES[0]}" ".env"
-    else
-        download_file "$SOURCE_URL/${ENV_EXAMPLES[1]}" ".env"
-    fi
-}
-# data または s3_data があれば再初期化を避ける
-if [ -d "data" ] || [ -d "s3_data" ]; then
-    show_message "tips_already_installed"
-    exit 0
-else
-    section_download_files
-fi
-
-section_configurate_host() {
-    DEPLOY_MODE=$ask_result
-    show_message "host_regenerate"
-    # ローカルモードならこの設定は不要
-    if [[ "$DEPLOY_MODE" == "2" ]]; then
-        HOST="localhost:3210"
-        LOBE_HOST="$HOST"
-        return 0
-    fi
-
-    # ドメインモードではプロトコルを確認する
-    if [[ "$DEPLOY_MODE" == "0" ]]; then
-        # https を使うか確認する
-        echo "$(show_message 'ask_protocol')"
-        ask "(y/n)" "y"
-        if [[ "$ask_result" == "y" ]]; then
-            PROTOCOL="https"
-            # .env 内の http を https に置き換える
-            sed "${SED_INPLACE_ARGS[@]}" "s#http://#https://#" .env
-        fi
-    fi
-    
-    # sed が利用できることを確認する
-    if ! command -v sed &> /dev/null ; then
-        echo "sed $(show_message 'tips_no_executable')"
-        exit 1
-    fi
-    
-    # ホスト指定がなければサーバーIPを自動検出する
-    if [ -z "$HOST" ]; then
-        HOST=$(hostname -I | awk '{print $1}')
-        # ポートモードでプライベートIPなら注意喚起する
-        if [[ "$DEPLOY_MODE" == "1" ]] && ([[ "$HOST" == "192.168."* ]] || [[ "$HOST" == "172."* ]] || [[ "$HOST" == "10."* ]]); then
-            echo "$(show_message 'tips_private_ip_detected')"
-        fi
-    fi
-    
-    case $DEPLOY_MODE in
-        0)
-            DEPLOY_MODE="domain"
-            echo "LobeHub $(show_message 'ask_domain' 'example.com')"
-            ask "(example.com)"
-            LOBE_HOST="$ask_result"
-            # ドメインモードでは RustFS 用ドメインも確認する
-            echo "RustFS S3 API $(show_message 'ask_domain' 's3.example.com')"
-            ask "(s3.example.com)"
-            RUSTFS_HOST="$ask_result"
-        ;;
-        1)
-            DEPLOY_MODE="ip"
-            ask "LobeHub$(show_message 'ask_host')" "$HOST" "$(show_message 'tips_auto_detected')"
-            LOBE_HOST="$ask_result"
-            # 入力値をホストとして採用する
-            HOST="$ask_result"
-            # ポートモードでは各サービスのポートを付与する
-            LOBE_HOST="${HOST}:3210"
-            RUSTFS_HOST="${HOST}:9000"
-        ;;
-        *)
-            echo "無効なデプロイモードです: $ask_result"
-            exit 1
-        ;;
-    esac
-
-    # LobeHub 側の接続先
-    sed "${SED_INPLACE_ARGS[@]}" "s#^APP_URL=.*#APP_URL=$PROTOCOL://$LOBE_HOST#" .env
-    # S3 関連の接続先
-    sed "${SED_INPLACE_ARGS[@]}" "s#^S3_ENDPOINT=.*#S3_ENDPOINT=$PROTOCOL://$RUSTFS_HOST#" .env
-    
-    # .env の更新結果を確認する
-    if [ $? -ne 0 ]; then
-        echo "$(show_message 'host_regenerate_failed')$HOST in \`.env\`"
-    fi
-}
-show_message "ask_deploy_mode"
-ask "(0,1,2)" "2"
-if [[ "$ask_result" == "0" ]] || [[ "$ask_result" == "1" ]] || [[ "$ask_result" == "2" ]]; then
-    section_configurate_host
-else
-    echo "無効なデプロイモードです: $ask_result。0、1、2 のいずれかを選んでください。"
+require_file() {
+  local path="$1"
+  if [[ ! -f "$path" ]]; then
+    echo "Required file not found: $path" >&2
     exit 1
-fi
-
-# ============================
-# === シークレット再生成 ===
-# ============================
-section_regenerate_secrets() {
-    # 必要なコマンドが使えるか確認する
-    if ! command -v openssl &> /dev/null ; then
-        echo "openssl $(show_message 'tips_no_executable')"
-        exit 1
-    fi
-    if ! command -v tr &> /dev/null ; then
-        echo "tr $(show_message 'tips_no_executable')"
-        exit 1
-    fi
-    if ! command -v fold &> /dev/null ; then
-        echo "fold $(show_message 'tips_no_executable')"
-        exit 1
-    fi
-    if ! command -v head &> /dev/null ; then
-        echo "head $(show_message 'tips_no_executable')"
-        exit 1
-    fi
-    
-    generate_key() {
-        if [[ -z "$1" ]]; then
-            echo "使い方: generate_key <length>"
-            return 1
-        fi
-        echo $(openssl rand -hex $1 | tr -d '\n' | fold -w $1 | head -n 1)
-    }
-    
-    if ! command -v sed &> /dev/null ; then
-        echo "sed $(show_message 'tips_no_executable')"
-        exit 1
-    fi
-    echo "$(show_message 'security_secrect_regenerate')"
-
-    # RustFS の S3 ユーザーパスワードを生成する
-    RUSTFS_SECRET_KEY=$(generate_key 8)
-    if [ $? -ne 0 ]; then
-        echo "$(show_message 'security_secrect_regenerate_failed')RUSTFS_SECRET_KEY"
-        RUSTFS_SECRET_KEY="YOUR_RUSTFS_PASSWORD"
-    else
-        sed "${SED_INPLACE_ARGS[@]}" "s#^RUSTFS_SECRET_KEY=.*#RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY}#" .env
-        if [ $? -ne 0 ]; then
-            echo "$(show_message 'security_secrect_regenerate_failed')RUSTFS_SECRET_KEY in \`.env\`"
-        fi
-    fi
-
-    # KEY_VAULTS_SECRET を生成する（base64 / 32 bytes）
-    KEY_VAULTS_SECRET=$(openssl rand -base64 32)
-    if [ $? -ne 0 ]; then
-        echo "$(show_message 'security_secrect_regenerate_failed')KEY_VAULTS_SECRET"
-    else
-        sed "${SED_INPLACE_ARGS[@]}" "s#^KEY_VAULTS_SECRET=.*#KEY_VAULTS_SECRET=${KEY_VAULTS_SECRET}#" .env
-        if [ $? -ne 0 ]; then
-            echo "$(show_message 'security_secrect_regenerate_failed')KEY_VAULTS_SECRET in \`.env\`"
-        fi
-    fi
-
-    # AUTH_SECRET を生成する（base64 / 32 bytes）
-    AUTH_SECRET=$(openssl rand -base64 32)
-    if [ $? -ne 0 ]; then
-        echo "$(show_message 'security_secrect_regenerate_failed')AUTH_SECRET"
-    else
-        sed "${SED_INPLACE_ARGS[@]}" "s#^AUTH_SECRET=.*#AUTH_SECRET=${AUTH_SECRET}#" .env
-        if [ $? -ne 0 ]; then
-            echo "$(show_message 'security_secrect_regenerate_failed')AUTH_SECRET in \`.env\`"
-        fi
-    fi
+  fi
 }
 
-show_message "ask_regenerate_secrets"
-ask "(y/n)" "y"
-if [[ "$ask_result" == "y" ]]; then
-    section_regenerate_secrets
-fi
-
-section_init_database() {
-    if ! command -v docker &> /dev/null ; then
-        echo "docker $(show_message 'tips_no_executable')"
-        return 1
-    fi
-
-    if ! docker compose version &> /dev/null ; then
-        echo "docker compose $(show_message 'tips_no_executable')"
-        return 1
-    fi
-
-    # docker stats が失敗する場合は Docker 権限不足の可能性が高い
-    # ref: https://github.com/paperless-ngx/paperless-ngx/blob/89e5c08a1fe4ca0b7641ae8fbd5554502199ae40/install-paperless-ngx.sh#L64-L72
-    if ! docker stats --no-stream &> /dev/null ; then
-        echo "$(show_message 'tips_no_docker_permission')"
-        return 1
-    fi
-
-    docker compose pull
-    docker compose up --detach postgresql
-    # 低速な環境でも起動を待てるように少し待機する
-    sleep 15
-    docker compose stop
+require_command() {
+  local command_name="$1"
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    echo "Command not found: $command_name" >&2
+    exit 1
+  fi
 }
 
-show_message "ask_init_database"
-ask "(y/n)" "y"
-if [[ "$ask_result" == "y" ]]; then
-    # 戻り値 1 は初期化失敗を表す
-    section_init_database
-    if [ $? -ne 0 ]; then
-        echo "$(show_message 'tips_init_database_failed')"
-    fi
-else 
-    show_message "tips_init_database_failed"
-fi
-
-section_display_configurated_report() {
-    # 最終的な設定内容を表示する
-    echo "$(show_message 'security_secrect_regenerate_report')"
-
-    echo -e "LobeHub: \n  - URL: $PROTOCOL://$LOBE_HOST"
-    echo -e "RustFS: \n  - URL: $PROTOCOL://$RUSTFS_HOST \n  - ユーザー名: admin\n  - パスワード: ${RUSTFS_SECRET_KEY}\n"
-
-    # ドメインモードではリバースプロキシ向けの対応表も表示する
-    if [[ "$DEPLOY_MODE" == "domain" ]]; then
-        echo "$(show_message 'tips_add_reverse_proxy')"
-        printf "\n%s\t->\t%s\n" "$LOBE_HOST" "127.0.0.1:3210"
-        printf "%s\t->\t%s\n" "$RUSTFS_HOST" "127.0.0.1:9000"
-    fi
-
-    # 起動手順を案内する
-
-    printf "\n%s\n\n" "$(show_message "tips_run_command")"
-    print_centered "docker compose up --no-attach searxng" "green"
-    printf "\n%s\n" "$(show_message "tips_if_run_normally")"
-    printf "\n%s\n" "$(show_message "tips_regen_jwks")"
-    printf "\n%s\n\n" "$(show_message "tips_disable_registration")"
-    print_centered "docker compose up -d --no-attach searxng" "green"
-    printf "\n%s\n" "$(show_message "tips_if_want_searxng_logs")"
-    print_centered "docker compose logs -f searxng" "white"
-    printf "\n%s\n" "$(show_message "tips_allow_ports")"
-    printf "\n%s" "$(show_message "tips_show_documentation")"
-    printf "%s\n" "$(show_message "tips_show_documentation_url")"
+detect_python() {
+  if command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+  elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="python"
+  else
+    echo "python3 or python is required" >&2
+    exit 1
+  fi
 }
-section_display_configurated_report
+
+backup_file() {
+  local path="$1"
+  if [[ -f "$path" ]]; then
+    cp "$path" "${path}.bk"
+  fi
+}
+
+ask_input() {
+  local prompt="$1"
+  local default_value="${2:-}"
+  local result=""
+
+  if [[ -n "$default_value" ]]; then
+    read -r -p "$prompt [$default_value]: " result
+    result="${result:-$default_value}"
+  else
+    read -r -p "$prompt: " result
+  fi
+
+  ASK_RESULT="$(printf '%s' "$result" | awk '{$1=$1;print}')"
+}
+
+ask_yes_no() {
+  local prompt="$1"
+  local default_value="${2:-y}"
+
+  while true; do
+    ask_input "$prompt (y/n)" "$default_value"
+    case "${ASK_RESULT,,}" in
+      y|yes)
+        ASK_RESULT="y"
+        return 0
+        ;;
+      n|no)
+        ASK_RESULT="n"
+        return 0
+        ;;
+      *)
+        echo "y か n を入力してください"
+        ;;
+    esac
+  done
+}
+
+read_env_value() {
+  local key="$1"
+  local file="$2"
+
+  [[ -f "$file" ]] || return 0
+
+  local line
+  line="$(grep -E "^[[:space:]]*${key}=" "$file" | tail -n 1 || true)"
+  if [[ -z "$line" ]]; then
+    return 0
+  fi
+
+  printf '%s' "${line#*=}"
+}
+
+set_env_value() {
+  local key="$1"
+  local value="$2"
+
+  "$PYTHON_BIN" - "$ENV_FILE" "$key" "$value" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+key = sys.argv[2]
+value = sys.argv[3]
+lines = path.read_text(encoding='utf-8').splitlines()
+prefix = f"{key}="
+for index, line in enumerate(lines):
+    if line.startswith(prefix):
+        lines[index] = prefix + value
+        break
+else:
+    if lines and lines[-1] != "":
+        lines.append("")
+    lines.append(prefix + value)
+path.write_text("\n".join(lines) + "\n", encoding='utf-8')
+PY
+}
+
+load_init_data_defaults() {
+  mapfile -t INIT_DEFAULTS < <("$PYTHON_BIN" - "$INIT_DATA_TEMPLATE_FILE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding='utf-8') as file:
+    data = json.load(file)
+
+app = next((item for item in data.get('applications', []) if item.get('name') == 'lobechat'), {})
+webhook = next((item for item in data.get('webhooks', []) if item.get('name') == 'webhook_default'), {})
+header_value = 'casdoor-secret'
+for header in webhook.get('headers', []):
+    if header.get('name') == 'casdoor-secret':
+        header_value = header.get('value', 'casdoor-secret')
+        break
+
+print(app.get('clientId', ''))
+print(app.get('clientSecret', ''))
+print(header_value)
+PY
+)
+
+  CASDOOR_CLIENT_ID_DEFAULT="${INIT_DEFAULTS[0]:-}"
+  CASDOOR_CLIENT_SECRET_DEFAULT="${INIT_DEFAULTS[1]:-}"
+  CASDOOR_WEBHOOK_SECRET_DEFAULT="${INIT_DEFAULTS[2]:-casdoor-secret}"
+}
+
+reset_init_data_file_from_template() {
+  if [[ -f "$INIT_DATA_FILE" ]]; then
+    backup_file "$INIT_DATA_FILE"
+  fi
+
+  cp "$INIT_DATA_TEMPLATE_FILE" "$INIT_DATA_FILE"
+  info "casdoor/init_data.json をテンプレートから生成しました"
+}
+
+ensure_env_file() {
+  if [[ -f "$ENV_FILE" ]]; then
+    backup_file "$ENV_FILE"
+    return 0
+  fi
+
+  cp "$ENV_EXAMPLE_FILE" "$ENV_FILE"
+  backup_file "$ENV_FILE"
+  ENV_CREATED=1
+  info ".env を .env.example から作成しました"
+}
+
+is_placeholder_value() {
+  local value="${1:-}"
+
+  case "$value" in
+    ""|replace_with_*|change_this_*|YOUR_*|sk-your-openai-api-key|*replace_me*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+generate_base64_secret() {
+  openssl rand -base64 32 | tr -d '\n'
+}
+
+generate_hex_secret() {
+  local byte_length="$1"
+  openssl rand -hex "$byte_length"
+}
+
+ensure_static_env_defaults() {
+  local auth_casdoor_id
+  local auth_casdoor_secret
+  local casdoor_webhook_secret
+  local jwks_key
+
+  auth_casdoor_id="$(read_env_value 'AUTH_CASDOOR_ID' "$ENV_FILE")"
+  auth_casdoor_secret="$(read_env_value 'AUTH_CASDOOR_SECRET' "$ENV_FILE")"
+  casdoor_webhook_secret="$(read_env_value 'CASDOOR_WEBHOOK_SECRET' "$ENV_FILE")"
+  jwks_key="$(read_env_value 'JWKS_KEY' "$ENV_FILE")"
+
+  if is_placeholder_value "$auth_casdoor_id"; then
+    set_env_value 'AUTH_CASDOOR_ID' "$CASDOOR_CLIENT_ID_DEFAULT"
+  fi
+
+  if is_placeholder_value "$auth_casdoor_secret"; then
+    set_env_value 'AUTH_CASDOOR_SECRET' "$CASDOOR_CLIENT_SECRET_DEFAULT"
+  fi
+
+  if is_placeholder_value "$casdoor_webhook_secret"; then
+    set_env_value 'CASDOOR_WEBHOOK_SECRET' "$CASDOOR_WEBHOOK_SECRET_DEFAULT"
+  fi
+
+  if is_placeholder_value "$jwks_key"; then
+    set_env_value 'JWKS_KEY' "$DEFAULT_JWKS_KEY"
+  fi
+}
+
+should_regenerate_secrets() {
+  local current_value=""
+  for key in KEY_VAULTS_SECRET AUTH_SECRET POSTGRES_PASSWORD RUSTFS_SECRET_KEY GF_SECURITY_ADMIN_PASSWORD; do
+    current_value="$(read_env_value "$key" "$ENV_FILE")"
+    if is_placeholder_value "$current_value"; then
+      return 0
+    fi
+  done
+
+  if [[ "$ENV_CREATED" == "1" ]]; then
+    return 0
+  fi
+
+  return 1
+}
+
+maybe_regenerate_secrets() {
+  local regenerate="n"
+
+  case "$REGENERATE_SECRETS" in
+    yes)
+      regenerate="y"
+      ;;
+    no)
+      regenerate="n"
+      ;;
+    *)
+      if should_regenerate_secrets; then
+        ask_yes_no "ランタイム用のシークレットを再生成しますか" "y"
+      else
+        ask_yes_no "ランタイム用のシークレットを再生成しますか" "n"
+      fi
+      regenerate="$ASK_RESULT"
+      ;;
+  esac
+
+  if [[ "$regenerate" != "y" ]]; then
+    info "既存のシークレット値を保持します"
+    return 0
+  fi
+
+  require_command openssl
+
+  set_env_value 'KEY_VAULTS_SECRET' "$(generate_base64_secret)"
+  set_env_value 'AUTH_SECRET' "$(generate_base64_secret)"
+  set_env_value 'POSTGRES_PASSWORD' "$(generate_hex_secret 12)"
+  set_env_value 'RUSTFS_SECRET_KEY' "$(generate_hex_secret 8)"
+  set_env_value 'GF_SECURITY_ADMIN_PASSWORD' "$(generate_hex_secret 10)"
+
+  info "ランタイム用シークレットを更新しました"
+}
+
+load_ports_from_env() {
+  LOBE_PORT="$(read_env_value 'LOBE_PORT' "$ENV_FILE")"
+  RUSTFS_PORT="$(read_env_value 'RUSTFS_PORT' "$ENV_FILE")"
+  RUSTFS_ADMIN_PORT="$(read_env_value 'RUSTFS_ADMIN_PORT' "$ENV_FILE")"
+  CASDOOR_PORT="$(read_env_value 'CASDOOR_PORT' "$ENV_FILE")"
+  GRAFANA_PORT="$(read_env_value 'GRAFANA_PORT' "$ENV_FILE")"
+
+  LOBE_PORT="${LOBE_PORT:-3210}"
+  RUSTFS_PORT="${RUSTFS_PORT:-9000}"
+  RUSTFS_ADMIN_PORT="${RUSTFS_ADMIN_PORT:-9001}"
+  CASDOOR_PORT="${CASDOOR_PORT:-8000}"
+  GRAFANA_PORT="${GRAFANA_PORT:-3000}"
+}
+
+auto_detect_host() {
+  if command -v hostname >/dev/null 2>&1; then
+    local detected
+    detected="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+    if [[ -n "$detected" ]]; then
+      printf '%s' "$detected"
+      return 0
+    fi
+  fi
+
+  printf 'localhost'
+}
+
+is_private_ip() {
+  local candidate="$1"
+  [[ "$candidate" == 10.* || "$candidate" == 192.168.* || "$candidate" == 172.1[6-9].* || "$candidate" == 172.2[0-9].* || "$candidate" == 172.3[0-1].* ]]
+}
+
+normalize_mode() {
+  case "${1,,}" in
+    0|domain)
+      printf 'domain'
+      ;;
+    1|port)
+      printf 'port'
+      ;;
+    2|local|localhost)
+      printf 'local'
+      ;;
+    *)
+      printf ''
+      ;;
+  esac
+}
+
+collect_mode_and_urls() {
+  local detected_host=""
+  local host_prompt_default=""
+  local normalized_mode=""
+
+  normalized_mode="$(normalize_mode "$MODE")"
+  if [[ -z "$normalized_mode" ]]; then
+    echo "デプロイモードを選択してください"
+    echo "  0) domain  外部のリバースプロキシやトンネル前提でドメインを使う"
+    echo "  1) port    ホスト名または IP とポートで公開する"
+    echo "  2) local   localhost だけで利用する"
+    ask_input 'モード' 'local'
+    normalized_mode="$(normalize_mode "$ASK_RESULT")"
+  fi
+
+  if [[ -z "$normalized_mode" ]]; then
+    echo "Invalid mode: ${MODE:-$ASK_RESULT}" >&2
+    exit 1
+  fi
+
+  MODE="$normalized_mode"
+
+  case "$MODE" in
+    local)
+      PROTOCOL="http"
+      HOST="localhost"
+      APP_URL="http://localhost:${LOBE_PORT}"
+      S3_ENDPOINT_URL="http://localhost:${RUSTFS_PORT}"
+      CASDOOR_ISSUER_URL="http://localhost:${CASDOOR_PORT}"
+      CASDOOR_ORIGIN_URL="$CASDOOR_ISSUER_URL"
+      RUSTFS_CONSOLE_URL="http://localhost:${RUSTFS_ADMIN_PORT}"
+      GRAFANA_URL="http://localhost:${GRAFANA_PORT}"
+      ;;
+    port)
+      PROTOCOL="http"
+      detected_host="$(auto_detect_host)"
+      if [[ -z "$HOST" ]]; then
+        host_prompt_default="$detected_host"
+        ask_input 'LobeHub を公開するホスト名または IP' "$host_prompt_default"
+        HOST="$ASK_RESULT"
+      fi
+      if is_private_ip "$HOST"; then
+        warn "プライベート IP が選ばれました  外部公開する場合はグローバル IP か DNS 名を指定してください"
+      fi
+      APP_URL="http://${HOST}:${LOBE_PORT}"
+      S3_ENDPOINT_URL="http://${HOST}:${RUSTFS_PORT}"
+      CASDOOR_ISSUER_URL="http://${HOST}:${CASDOOR_PORT}"
+      CASDOOR_ORIGIN_URL="$CASDOOR_ISSUER_URL"
+      RUSTFS_CONSOLE_URL="http://${HOST}:${RUSTFS_ADMIN_PORT}"
+      GRAFANA_URL="http://${HOST}:${GRAFANA_PORT}"
+      ;;
+    domain)
+      if [[ -z "$PROTOCOL" ]]; then
+        ask_input 'プロトコル' 'https'
+        PROTOCOL="$ASK_RESULT"
+      fi
+
+      case "${PROTOCOL,,}" in
+        http|https)
+          PROTOCOL="${PROTOCOL,,}"
+          ;;
+        *)
+          echo "Invalid protocol: $PROTOCOL" >&2
+          exit 1
+          ;;
+      esac
+
+      if [[ -z "$APP_DOMAIN" ]]; then
+        ask_input 'LobeHub のドメイン' 'chat.example.com'
+        APP_DOMAIN="$ASK_RESULT"
+      fi
+      if [[ -z "$CASDOOR_DOMAIN" ]]; then
+        ask_input 'Casdoor のドメイン' 'auth.example.com'
+        CASDOOR_DOMAIN="$ASK_RESULT"
+      fi
+      if [[ -z "$RUSTFS_DOMAIN" ]]; then
+        ask_input 'RustFS API のドメイン' 's3.example.com'
+        RUSTFS_DOMAIN="$ASK_RESULT"
+      fi
+
+      APP_URL="${PROTOCOL}://${APP_DOMAIN}"
+      S3_ENDPOINT_URL="${PROTOCOL}://${RUSTFS_DOMAIN}"
+      CASDOOR_ISSUER_URL="${PROTOCOL}://${CASDOOR_DOMAIN}"
+      CASDOOR_ORIGIN_URL="$CASDOOR_ISSUER_URL"
+      RUSTFS_CONSOLE_URL="${PROTOCOL}://${RUSTFS_DOMAIN}"
+      GRAFANA_URL="${PROTOCOL}://grafana.example.com"
+      ;;
+  esac
+}
+
+apply_env_urls() {
+  set_env_value 'APP_URL' "$APP_URL"
+  set_env_value 'INTERNAL_APP_URL' "http://localhost:${LOBE_PORT}"
+  set_env_value 'S3_ENDPOINT' "$S3_ENDPOINT_URL"
+  set_env_value 'AUTH_CASDOOR_ISSUER' "$CASDOOR_ISSUER_URL"
+  set_env_value 'origin' "$CASDOOR_ORIGIN_URL"
+}
+
+update_init_data() {
+  local webhook_secret
+  webhook_secret="$(read_env_value 'CASDOOR_WEBHOOK_SECRET' "$ENV_FILE")"
+
+  "$PYTHON_BIN" - "$INIT_DATA_FILE" "$APP_URL" "$webhook_secret" "$LOBE_PORT" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+app_url = sys.argv[2].rstrip('/')
+webhook_secret = sys.argv[3]
+lobe_port = sys.argv[4]
+callback_url = f"{app_url}/api/auth/callback/casdoor"
+webhook_url = f"{app_url}/api/webhooks/casdoor"
+
+redirect_uris = []
+for candidate in [
+    callback_url,
+    f"http://localhost:{lobe_port}/api/auth/callback/casdoor",
+    f"https://localhost:{lobe_port}/api/auth/callback/casdoor",
+]:
+    if candidate not in redirect_uris:
+        redirect_uris.append(candidate)
+
+with path.open(encoding='utf-8') as file:
+    data = json.load(file)
+
+for application in data.get('applications', []):
+    if application.get('name') == 'lobechat':
+        application['redirectUris'] = redirect_uris
+        break
+
+for webhook in data.get('webhooks', []):
+    if webhook.get('name') == 'webhook_default':
+        webhook['url'] = webhook_url
+        headers = webhook.setdefault('headers', [])
+        for header in headers:
+            if header.get('name') == 'casdoor-secret':
+                header['value'] = webhook_secret
+                break
+        else:
+            headers.append({'name': 'casdoor-secret', 'value': webhook_secret})
+        break
+
+with path.open('w', encoding='utf-8') as file:
+    json.dump(data, file, ensure_ascii=False, indent=2)
+    file.write('\n')
+PY
+
+  info "casdoor/init_data.json の redirect URI と webhook URL を更新しました"
+}
+
+ensure_directories() {
+  mkdir -p \
+    "${ROOT_DIR}/postgresql/data" \
+    "${ROOT_DIR}/redis/data" \
+    "${ROOT_DIR}/rustfs/data" \
+    "${ROOT_DIR}/rustfs/logs" \
+    "${ROOT_DIR}/grafana/data" \
+    "${ROOT_DIR}/grafana/dashboards" \
+    "${ROOT_DIR}/prometheus/data" \
+    "${ROOT_DIR}/tempo/data"
+
+  if [[ "$(uname -s)" == "Linux" ]]; then
+    if [[ "$(id -u)" == "0" ]] && command -v chown >/dev/null 2>&1; then
+      chown -R 10001:10001 "${ROOT_DIR}/rustfs/data" "${ROOT_DIR}/rustfs/logs"
+      chmod -R 755 "${ROOT_DIR}/rustfs/data" "${ROOT_DIR}/rustfs/logs"
+      info "RustFS 用ディレクトリの所有者を 10001:10001 に調整しました"
+    else
+      warn "Linux で RustFS が Permission denied になる場合は rustfs/data と rustfs/logs を 10001:10001 に調整してください"
+    fi
+  fi
+}
+
+postgres_data_already_exists() {
+  [[ -d "${ROOT_DIR}/postgresql/data" ]] && find "${ROOT_DIR}/postgresql/data" -mindepth 1 -print -quit | grep -q .
+}
+
+maybe_validate_compose() {
+  local do_validate="n"
+
+  case "$VALIDATE_COMPOSE" in
+    yes)
+      do_validate="y"
+      ;;
+    no)
+      do_validate="n"
+      ;;
+    *)
+      ask_yes_no 'docker compose config で設定を検証しますか' 'y'
+      do_validate="$ASK_RESULT"
+      ;;
+  esac
+
+  if [[ "$do_validate" != "y" ]]; then
+    return 0
+  fi
+
+  if ! command -v docker >/dev/null 2>&1; then
+    warn 'docker が見つからないため設定検証をスキップしました'
+    return 0
+  fi
+
+  if ! docker compose version >/dev/null 2>&1; then
+    warn 'docker compose が使えないため設定検証をスキップしました'
+    return 0
+  fi
+
+  if ! docker stats --no-stream >/dev/null 2>&1; then
+    warn '現在のユーザーでは Docker へアクセスできないため設定検証をスキップしました'
+    return 0
+  fi
+
+  docker compose -f "$COMPOSE_FILE" config >/dev/null
+  info 'docker compose config を通過しました'
+}
+
+print_report() {
+  local rustfs_secret
+  local grafana_password
+
+  rustfs_secret="$(read_env_value 'RUSTFS_SECRET_KEY' "$ENV_FILE")"
+  grafana_password="$(read_env_value 'GF_SECURITY_ADMIN_PASSWORD' "$ENV_FILE")"
+
+  echo
+  echo '=== Setup Summary ==='
+  echo "APP_URL: ${APP_URL}"
+  echo "Casdoor: ${CASDOOR_ISSUER_URL}"
+  echo "RustFS API: ${S3_ENDPOINT_URL}"
+
+  if [[ "$MODE" == 'domain' ]]; then
+    echo "RustFS Console: 9001 を別途公開する場合は逆プロキシ設定が必要です"
+    echo "Grafana: 3000 を別途公開する場合は逆プロキシ設定が必要です"
+  else
+    echo "RustFS Console: ${RUSTFS_CONSOLE_URL}"
+    echo "Grafana: ${GRAFANA_URL}"
+  fi
+
+  echo
+  echo 'Saved files:'
+  echo "  .env -> ${ENV_FILE}"
+  echo "  init_data template -> ${INIT_DATA_TEMPLATE_FILE}"
+  echo "  init_data output -> ${INIT_DATA_FILE}"
+  echo "  backup .env -> ${ENV_FILE}.bk"
+  echo "  backup init_data -> ${INIT_DATA_FILE}.bk"
+
+  echo
+  echo 'Credentials to review:'
+  echo "  RustFS access key: admin"
+  echo "  RustFS secret key: ${rustfs_secret}"
+  echo "  Grafana admin password: ${grafana_password}"
+
+  echo
+  echo 'Next commands:'
+  echo '  docker compose config'
+  echo '  docker compose pull'
+  echo '  docker compose up -d network-service postgresql redis rustfs rustfs-init searxng tempo prometheus otel-collector casdoor'
+  echo '  docker compose up -d lobe grafana'
+
+  if [[ -z "$(read_env_value 'CLOUDFLARE_TUNNEL_TOKEN' "$ENV_FILE")" ]]; then
+    echo
+    echo 'Cloudflared は CLOUDFLARE_TUNNEL_TOKEN を設定したあとに個別で起動してください'
+  fi
+
+  if postgres_data_already_exists; then
+    echo
+    warn 'postgresql/data に既存データがあります  casdoor/init_data.json の変更は既存の Casdoor DB へ自動反映されません'
+    warn '既存環境では Casdoor 管理画面で redirect URI と webhook を更新するか PostgreSQL を初期化してください'
+  fi
+}
+
+main() {
+  require_file "$ENV_EXAMPLE_FILE"
+  require_file "$INIT_DATA_TEMPLATE_FILE"
+  require_file "$COMPOSE_FILE"
+
+  detect_python
+  load_init_data_defaults
+  ensure_env_file
+  ensure_static_env_defaults
+  maybe_regenerate_secrets
+  load_ports_from_env
+  collect_mode_and_urls
+  apply_env_urls
+  reset_init_data_file_from_template
+  update_init_data
+  ensure_directories
+  maybe_validate_compose
+  print_report
+}
+
+main "$@"
+
+
