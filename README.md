@@ -22,6 +22,27 @@
 - ファイルストレージは MinIO ではなく RustFS を使っています
 - 永続化は Docker named volume ではなく、すべてホスト側ディレクトリに bind mount しています
 
+## SearXNG 構成
+
+- `searxng/settings.yml` は巨大な全量設定ではなく、`use_default_settings` で upstream defaults を継承し、`json` フォーマットや `ja-JP` など必要最小限だけ上書きしています
+- LobeHub 側の検索連携は `SEARCH_PROVIDERS=searxng` と `SEARXNG_URL` を使う形に揃えています
+- compose 内の `searxng` は `with-searxng` profile で起動有無を切り替えられるため、外部 `SearXNG` を使う場合は内蔵コンテナを起動しません
+- compose 内の `SearXNG` は `./searxng` を `/etc/searxng` へ bind mount し、検索キャッシュだけ named volume `searxng-cache` に保持します
+
+### 外部 SearXNG への切り替え
+
+- ローカルの `SearXNG` を使う場合は `.env` の `COMPOSE_PROFILES` に `with-searxng` を含めたままにします
+- 外部の `SearXNG` を使う場合は `COMPOSE_PROFILES` から `with-searxng` を外し、`SEARXNG_URL` を外部 URL に変更します
+- 外部 `SearXNG` 側では `json` フォーマットを有効にしてください
+- compose 内の `SearXNG` UI を別途公開する場合だけ `SEARXNG_BASE_URL` を実際の公開 URL に合わせて変更してください
+
+例:
+
+```env
+COMPOSE_PROFILES=
+SEARXNG_URL=https://searx.example.com
+```
+
 ## ディレクトリ構成
 
 主なファイル / ディレクトリは次のとおりです。
@@ -211,8 +232,17 @@ docker compose pull
 
 起動例:
 
+ローカル `SearXNG` を使う場合:
+
 ```bash
 docker compose up -d network-service postgresql redis rustfs rustfs-init searxng tempo prometheus otel-collector casdoor
+docker compose up -d lobe grafana
+```
+
+外部 `SearXNG` を使う場合:
+
+```bash
+docker compose up -d network-service postgresql redis rustfs rustfs-init tempo prometheus otel-collector casdoor
 docker compose up -d lobe grafana
 ```
 
@@ -228,6 +258,12 @@ docker compose logs -f lobe casdoor rustfs grafana tempo prometheus cloudflared 
 ```bash
 curl http://localhost:9000/health
 curl http://localhost:8000/.well-known/openid-configuration
+```
+
+ローカル `SearXNG` の設定確認:
+
+```bash
+docker compose exec searxng sed -n '1,120p' /etc/searxng/settings.yml
 ```
 
 ## モデル / provider 設定の考え方
@@ -466,5 +502,4 @@ TARGET_USER_ID='user_xxx' BACKUP_FILE=./scripts/user-backup.json bash scripts/re
 - provider 設定 UI を一般ユーザーへ見せるかどうかの方針決定
 - `blackbox-ai` を DB seed 化するか、OpenAI 互換 ENV に寄せるかの決定
 - 必要なら dry-run スクリプトの追加
-
 

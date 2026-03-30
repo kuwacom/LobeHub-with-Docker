@@ -292,6 +292,15 @@ is_placeholder_value() {
   esac
 }
 
+csv_has_value() {
+  local csv="${1:-}"
+  local needle="$2"
+  local normalized
+
+  normalized=",${csv// /},"
+  [[ "$normalized" == *",${needle},"* ]]
+}
+
 generate_base64_secret() {
   openssl rand -base64 32 | tr -d '\n'
 }
@@ -329,9 +338,49 @@ ensure_static_env_defaults() {
   fi
 }
 
+ensure_search_env_defaults() {
+  local compose_profiles
+  local search_providers
+  local searxng_url
+  local searxng_secret
+  local searxng_base_url
+  local searxng_force_ownership
+
+  compose_profiles="$(read_env_value 'COMPOSE_PROFILES' "$ENV_FILE")"
+  search_providers="$(read_env_value 'SEARCH_PROVIDERS' "$ENV_FILE")"
+  searxng_url="$(read_env_value 'SEARXNG_URL' "$ENV_FILE")"
+  searxng_secret="$(read_env_value 'SEARXNG_SECRET' "$ENV_FILE")"
+  searxng_base_url="$(read_env_value 'SEARXNG_BASE_URL' "$ENV_FILE")"
+  searxng_force_ownership="$(read_env_value 'SEARXNG_FORCE_OWNERSHIP' "$ENV_FILE")"
+
+  if [[ -z "$compose_profiles" ]]; then
+    set_env_value 'COMPOSE_PROFILES' 'with-searxng'
+  fi
+
+  if [[ -z "$search_providers" ]]; then
+    set_env_value 'SEARCH_PROVIDERS' 'searxng'
+  fi
+
+  if [[ -z "$searxng_url" ]]; then
+    set_env_value 'SEARXNG_URL' 'http://searxng:8080'
+  fi
+
+  if [[ -z "$searxng_secret" ]]; then
+    set_env_value 'SEARXNG_SECRET' 'change_this_searxng_secret'
+  fi
+
+  if [[ -z "$searxng_base_url" ]]; then
+    set_env_value 'SEARXNG_BASE_URL' 'http://searxng:8080/'
+  fi
+
+  if [[ -z "$searxng_force_ownership" ]]; then
+    set_env_value 'SEARXNG_FORCE_OWNERSHIP' 'true'
+  fi
+}
+
 should_regenerate_secrets() {
   local current_value=""
-  for key in KEY_VAULTS_SECRET AUTH_SECRET POSTGRES_PASSWORD RUSTFS_SECRET_KEY GF_SECURITY_ADMIN_PASSWORD; do
+  for key in KEY_VAULTS_SECRET AUTH_SECRET POSTGRES_PASSWORD RUSTFS_SECRET_KEY GF_SECURITY_ADMIN_PASSWORD SEARXNG_SECRET; do
     current_value="$(read_env_value "$key" "$ENV_FILE")"
     if is_placeholder_value "$current_value"; then
       return 0
@@ -377,6 +426,7 @@ maybe_regenerate_secrets() {
   set_env_value 'POSTGRES_PASSWORD' "$(generate_hex_secret 12)"
   set_env_value 'RUSTFS_SECRET_KEY' "$(generate_hex_secret 8)"
   set_env_value 'GF_SECURITY_ADMIN_PASSWORD' "$(generate_hex_secret 10)"
+  set_env_value 'SEARXNG_SECRET' "$(generate_hex_secret 16)"
 
   info "ランタイム用シークレットを更新しました"
 }
@@ -647,9 +697,15 @@ maybe_validate_compose() {
 }
 
 print_report() {
+  local compose_profiles
+  local search_providers
+  local searxng_url
   local rustfs_secret
   local grafana_password
 
+  compose_profiles="$(read_env_value 'COMPOSE_PROFILES' "$ENV_FILE")"
+  search_providers="$(read_env_value 'SEARCH_PROVIDERS' "$ENV_FILE")"
+  searxng_url="$(read_env_value 'SEARXNG_URL' "$ENV_FILE")"
   rustfs_secret="$(read_env_value 'RUSTFS_SECRET_KEY' "$ENV_FILE")"
   grafana_password="$(read_env_value 'GF_SECURITY_ADMIN_PASSWORD' "$ENV_FILE")"
 
@@ -658,6 +714,14 @@ print_report() {
   echo "APP_URL: ${APP_URL}"
   echo "Casdoor: ${CASDOOR_ISSUER_URL}"
   echo "RustFS API: ${S3_ENDPOINT_URL}"
+  echo "Search providers: ${search_providers:-searxng}"
+  echo "SearXNG URL: ${searxng_url:-http://searxng:8080}"
+
+  if csv_has_value "$compose_profiles" 'with-searxng'; then
+    echo "SearXNG mode: local compose service"
+  else
+    echo "SearXNG mode: external endpoint"
+  fi
 
   if [[ "$MODE" == 'domain' ]]; then
     echo "RustFS Console: 9001 を別途公開する場合は逆プロキシ設定が必要です"
@@ -685,7 +749,14 @@ print_report() {
   echo 'Next commands:'
   echo '  docker compose config'
   echo '  docker compose pull'
-  echo '  docker compose up -d network-service postgresql redis rustfs rustfs-init searxng tempo prometheus otel-collector casdoor'
+  echo '  docker compose up -d network-service postgresql redis rustfs rustfs-init tempo prometheus otel-collector casdoor'
+
+  if csv_has_value "$compose_profiles" 'with-searxng'; then
+    echo '  docker compose up -d searxng'
+  else
+    echo '  # 外部 SearXNG を使う場合は compose 内 searxng を起動しません'
+  fi
+
   echo '  docker compose up -d lobe grafana'
 
   if [[ -z "$(read_env_value 'CLOUDFLARE_TUNNEL_TOKEN' "$ENV_FILE")" ]]; then
@@ -709,6 +780,7 @@ main() {
   load_init_data_defaults
   ensure_env_file
   ensure_static_env_defaults
+  ensure_search_env_defaults
   maybe_regenerate_secrets
   load_ports_from_env
   collect_mode_and_urls

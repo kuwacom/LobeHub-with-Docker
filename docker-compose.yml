@@ -35,6 +35,9 @@ services:
         condition: service_completed_successfully
       casdoor:
         condition: service_started
+      searxng:
+        condition: service_started
+        required: false
     environment:
       - "KEY_VAULTS_SECRET=${KEY_VAULTS_SECRET}"
       - "AUTH_SECRET=${AUTH_SECRET}"
@@ -48,7 +51,8 @@ services:
       - "S3_SECRET_ACCESS_KEY=${RUSTFS_SECRET_KEY}"
       - "LLM_VISION_IMAGE_USE_BASE64=1"
       - "S3_SET_ACL=0"
-      - "SEARXNG_URL=http://searxng:8080"
+      - "SEARCH_PROVIDERS=${SEARCH_PROVIDERS:-searxng}"
+      - "SEARXNG_URL=${SEARXNG_URL:-http://searxng:8080}"
       - "REDIS_URL=redis://redis:6379"
       - "REDIS_PREFIX=lobechat"
       - "REDIS_TLS=0"
@@ -217,13 +221,25 @@ services:
       - .env
 
   searxng:
-    image: searxng/searxng
+    profiles:
+      - with-searxng
+    image: docker.io/searxng/searxng:latest
     container_name: lobe-searxng
-    volumes:
-      - "./searxng/settings.yml:/etc/searxng/settings.yml"
     environment:
-      - "SEARXNG_SETTINGS_FILE=/etc/searxng/settings.yml"
+      - "SEARXNG_BASE_URL=${SEARXNG_BASE_URL:-http://searxng:8080/}"
+      - "SEARXNG_SECRET=${SEARXNG_SECRET:-change_this_searxng_secret}"
+      - "FORCE_OWNERSHIP=${SEARXNG_FORCE_OWNERSHIP:-true}"
+    volumes:
+      - "./searxng:/etc/searxng:rw"
+      - "searxng-cache:/var/cache/searxng"
     restart: always
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
     networks:
       - lobe-network
     env_file:
@@ -323,6 +339,9 @@ services:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
       - TUNNEL_TRANSPORT_PROTOCOL=http2
     restart: always
+
+volumes:
+  searxng-cache:
 
 networks:
   lobe-network:
