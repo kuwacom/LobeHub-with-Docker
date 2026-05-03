@@ -453,6 +453,26 @@ TARGET_USER_ID='user_xxx' BACKUP_FILE=./scripts/user-backup.json bash scripts/re
 - `users` / auth 関連は作成しないので、Casdoor などの認証基盤側ユーザー作成は別途必要です
 - `topics.group_id` / `threads.group_id` / `messages.group_id` / `messages.message_group_id` は、未管理の group chat 系テーブルへぶら下がるため restore 時に `null` へ落とします
 
+### [`scripts/delete-user.sh`](./scripts/delete-user.sh) 指定ユーザーの完全削除
+指定したユーザーを LobeHub の PostgreSQL DB から削除するスクリプトです。  
+まず dry-run で削除予定を確認し、その後に明示確認付きで本実行する前提です。
+
+実行例:
+
+```bash
+TARGET_EMAIL='user@example.com' bash scripts/delete-user.sh --dry-run
+```
+
+```bash
+TARGET_EMAIL='user@example.com' bash scripts/delete-user.sh --no-dry-run --confirm-delete
+```
+
+注意:
+
+- このスクリプトは LobeHub 側 DB を対象にし、Casdoor など外部認証基盤のユーザーは削除しません
+- 旧スキーマ互換のため、一部の中間テーブルは `user_id` が無い場合も考慮して削除します
+- 念のため、本実行前に `backup-user-data.sh` でバックアップを取ることを推奨します
+
 ## リセット方針
 
 ### 全部リセットしたい場合
@@ -502,4 +522,3 @@ TARGET_USER_ID='user_xxx' BACKUP_FILE=./scripts/user-backup.json bash scripts/re
 - provider 設定 UI を一般ユーザーへ見せるかどうかの方針決定
 - `blackbox-ai` を DB seed 化するか、OpenAI 互換 ENV に寄せるかの決定
 - 必要なら dry-run スクリプトの追加
-
