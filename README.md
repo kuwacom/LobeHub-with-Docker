@@ -1,5 +1,7 @@
 # LobeHub Self-Hosting
 
+日本語 | [English](./README.en.md)
+
 LobeHub を自己ホストするための `docker-compose` 構成です。  
 本家 LobeHub の `deploy` / `production` 系構成を土台に、認証、監視、検索、オブジェクトストレージを外出しして運用しやすくしたリポジトリです。
 
