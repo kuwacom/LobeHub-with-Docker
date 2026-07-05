@@ -378,6 +378,37 @@ ensure_search_env_defaults() {
   fi
 }
 
+ensure_browserless_env_defaults() {
+  # COMPOSE_PROFILES への with-browserless 追加は既存プロファイルを壊さないよう、未設定時だけ補完する。
+  # 既に何らかの profile を設定している場合は setup.sh 側で上書きしない（ユーザー運用方針を尊重）。
+  local compose_profiles
+  compose_profiles="$(read_env_value 'COMPOSE_PROFILES' "$ENV_FILE")"
+
+  if [[ -z "$compose_profiles" ]] || is_placeholder_value "$compose_profiles"; then
+    set_env_value 'COMPOSE_PROFILES' 'with-searxng,with-browserless'
+  else
+    if ! csv_has_value "$compose_profiles" 'with-browserless'; then
+      warn "COMPOSE_PROFILES=${compose_profiles} のまま with-browserless を追加せず進めます。内蔵 Browserless を使う場合は手動で追記してください。"
+    fi
+  fi
+
+  set_default_if_empty() {
+    local key="$1"
+    local value="$2"
+    local current
+    current="$(read_env_value "$key" "$ENV_FILE")"
+    if [[ -z "$current" ]] || is_placeholder_value "$current"; then
+      set_env_value "$key" "$value"
+    fi
+  }
+
+  set_default_if_empty 'CRAWLER_IMPLS' 'naive,browserless'
+  set_default_if_empty 'BROWSERLESS_URL' 'http://browserless:3000'
+  set_default_if_empty 'BROWSERLESS_TOKEN' "$(generate_hex_secret 16)"
+  set_default_if_empty 'BROWSERLESS_BLOCK_ADS' '1'
+  set_default_if_empty 'BROWSERLESS_STEALTH_MODE' '0'
+}
+
 should_regenerate_secrets() {
   local current_value=""
   for key in KEY_VAULTS_SECRET AUTH_SECRET POSTGRES_PASSWORD RUSTFS_SECRET_KEY GF_SECURITY_ADMIN_PASSWORD SEARXNG_SECRET; do
@@ -717,28 +748,16 @@ print_report() {
   echo "Search providers: ${search_providers:-searxng}"
   echo "SearXNG URL: ${searxng_url:-http://searxng:8080}"
 
-  if csv_has_value "$compose_profiles" 'with-searxng'; then
-    echo "SearXNG mode: local compose service"
+  local browserless_url
+  local crawler_impls
+  browserless_url="$(read_env_value 'BROWSERLESS_URL' "$ENV_FILE")"
+  crawler_impls="$(read_env_value 'CRAWLER_IMPLS' "$ENV_FILE")"
+  if csv_has_value "$compose_profiles" 'with-browserless'; then
+    echo "Browserless mode: local compose service (${browserless_url:-http://browserless:3000})"
   else
-    echo "SearXNG mode: external endpoint"
+    echo "Browserless mode: external endpoint (${browserless_url:-https://chrome.browserless.io})"
   fi
-
-  if [[ "$MODE" == 'domain' ]]; then
-    echo "RustFS Console: 9001 を別途公開する場合は逆プロキシ設定が必要です"
-    echo "Grafana: 3000 を別途公開する場合は逆プロキシ設定が必要です"
-  else
-    echo "RustFS Console: ${RUSTFS_CONSOLE_URL}"
-    echo "Grafana: ${GRAFANA_URL}"
-  fi
-
-  echo
-  echo 'Saved files:'
-  echo "  .env -> ${ENV_FILE}"
-  echo "  init_data template -> ${INIT_DATA_TEMPLATE_FILE}"
-  echo "  init_data output -> ${INIT_DATA_FILE}"
-  echo "  backup .env -> ${ENV_FILE}.bk"
-  echo "  backup init_data -> ${INIT_DATA_FILE}.bk"
-
+  echo "Crawler impls: ${crawler_impls:-naive,browserless}"
   echo
   echo 'Credentials to review:'
   echo "  RustFS access key: admin"
@@ -755,6 +774,12 @@ print_report() {
     echo '  docker compose up -d searxng'
   else
     echo '  # 外部 SearXNG を使う場合は compose 内 searxng を起動しません'
+  fi
+
+  if csv_has_value "$compose_profiles" 'with-browserless'; then
+    echo '  docker compose up -d browserless'
+  else
+    echo '  # 外部 Browserless を使う場合は compose 内 browserless を起動しません'
   fi
 
   echo '  docker compose up -d lobe grafana'
@@ -781,6 +806,7 @@ main() {
   ensure_env_file
   ensure_static_env_defaults
   ensure_search_env_defaults
+  ensure_browserless_env_defaults
   maybe_regenerate_secrets
   load_ports_from_env
   collect_mode_and_urls

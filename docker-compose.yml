@@ -38,6 +38,9 @@ services:
       searxng:
         condition: service_started
         required: false
+      browserless:
+        condition: service_started
+        required: false
     environment:
       - "KEY_VAULTS_SECRET=${KEY_VAULTS_SECRET}"
       - "AUTH_SECRET=${AUTH_SECRET}"
@@ -53,6 +56,15 @@ services:
       - "S3_SET_ACL=0"
       - "SEARCH_PROVIDERS=${SEARCH_PROVIDERS:-searxng}"
       - "SEARXNG_URL=${SEARXNG_URL:-http://searxng:8080}"
+      # Web Crawler (Browserless) 関連設定
+      # CRAWLER_IMPLS を未指定の場合は LobeHub 既定の `naive` クローラのみ有効になる。
+      # browserless コンテナを起動して BROWSERLESS_URL を指定した上で、
+      # UI / DB 側でクローラとして browserless を選択すると本サービスが使われる。
+      - "CRAWLER_IMPLS=${CRAWLER_IMPLS:-naive,browserless}"
+      - "BROWSERLESS_URL=${BROWSERLESS_URL:-http://browserless:3000}"
+      - "BROWSERLESS_TOKEN=${BROWSERLESS_TOKEN:-}"
+      - "BROWSERLESS_BLOCK_ADS=${BROWSERLESS_BLOCK_ADS:-1}"
+      - "BROWSERLESS_STEALTH_MODE=${BROWSERLESS_STEALTH_MODE:-0}"
       - "REDIS_URL=redis://redis:6379"
       - "REDIS_PREFIX=lobechat"
       - "REDIS_TLS=0"
@@ -245,6 +257,22 @@ services:
     env_file:
       - .env
 
+  browserless:
+    profiles:
+      - with-browserless
+    image: ghcr.io/browserless/chromium:latest
+    container_name: lobe-browserless
+    environment:
+      - "TOKEN=${BROWSERLESS_TOKEN:-change_this_browserless_token}"
+      - "MAX_CONCURRENT_SESSIONS=${BROWSERLESS_MAX_CONCURRENT_SESSIONS:-5}"
+      - "MAX_QUEUE_LENGTH=${BROWSERLESS_MAX_QUEUE_LENGTH:-20}"
+      - "TIMEOUT=${BROWSERLESS_TIMEOUT_MS:-60000}"
+    volumes:
+      - "browserless-cache:/tmp"
+    restart: always
+    networks:
+      - lobe-network
+
   grafana:
     image: grafana/grafana:12.2.0-17419259409
     container_name: lobe-grafana
@@ -342,6 +370,7 @@ services:
 
 volumes:
   searxng-cache:
+  browserless-cache:
 
 networks:
   lobe-network:

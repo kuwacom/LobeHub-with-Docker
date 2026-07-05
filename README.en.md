@@ -50,6 +50,7 @@ The components in this repository are as follows:
 | Cache | Redis | Sessions / Cache |
 | Object Storage | RustFS | S3-compatible storage |
 | Search | SearXNG | Search backend for Online Search |
+| Web Crawler | Browserless | Crawler backend for Online Search (renders modern pages) |
 | Monitoring | Grafana / Prometheus / Tempo / OTel Collector | Metrics / Trace visualization |
 | Public Access | Cloudflared | Public access via Cloudflare Tunnel |
 
@@ -59,6 +60,7 @@ Key characteristics of this configuration:
 - RustFS is used instead of MinIO
 - Persistence uses host-side bind mounts rather than Docker named volumes
 - The `with-searxng` profile allows switching between built-in and external SearXNG
+- The `with-browserless` profile allows switching between built-in and external Browserless
 
 ## Get Started in 5 Minutes
 
@@ -97,7 +99,7 @@ docker compose pull
 
 ```bash
 docker compose up -d network-service postgresql redis rustfs rustfs-init tempo prometheus otel-collector casdoor
-docker compose up -d searxng
+docker compose up -d searxng browserless
 docker compose up -d lobe grafana
 ```
 
@@ -116,6 +118,8 @@ docker compose logs -f lobe casdoor rustfs grafana tempo prometheus --tail 200
 | `http://localhost:8000` | Casdoor Admin UI / Auth UI |
 | `http://localhost:9001` | RustFS Console |
 | `http://localhost:3000` | Grafana |
+
+> Browserless runs on the internal network only (no external port). If you need to open its debugger UI, set up a port forward manually.
 
 ### Exposed Ports
 
@@ -180,7 +184,7 @@ Startup:
 
 ```bash
 docker compose up -d network-service postgresql redis rustfs rustfs-init tempo prometheus otel-collector casdoor
-docker compose up -d searxng
+docker compose up -d searxng browserless
 docker compose up -d lobe grafana
 ```
 
@@ -204,6 +208,48 @@ Notes:
 
 - Enable `json` format on the external SearXNG side
 - `SEARXNG_BASE_URL` only needs adjustment if you're separately exposing the SearXNG UI
+
+## Using Browserless (Web Crawler)
+
+LobeHub's Online Search uses a crawler to extract page content from search results.
+The built-in simple crawler (`naive`) is enabled by default. For modern sites that require JavaScript rendering, add Browserless to improve success rates.
+
+### Using Built-in Browserless
+
+Add `with-browserless` to `COMPOSE_PROFILES` in `.env`, then point `BROWSERLESS_URL` at the compose service.
+
+```env
+COMPOSE_PROFILES=with-browserless,with-searxng
+CRAWLER_IMPLS=naive,browserless
+BROWSERLESS_URL=http://browserless:3000
+BROWSERLESS_TOKEN=change_this_browserless_token
+BROWSERLESS_BLOCK_ADS=1
+BROWSERLESS_STEALTH_MODE=0
+```
+
+Startup:
+
+```bash
+docker compose up -d network-service postgresql redis rustfs rustfs-init tempo prometheus otel-collector casdoor
+docker compose up -d searxng browserless
+docker compose up -d lobe grafana
+```
+
+### Using External Browserless
+
+If you don't want to run the container locally and want to use the public cloud (https://chrome.browserless.io) or another host, remove the profile and only update the URL / TOKEN.
+
+```env
+# Remove with-browserless from COMPOSE_PROFILES
+CRAWLER_IMPLS=browserless
+BROWSERLESS_URL=https://chrome.browserless.io
+BROWSERLESS_TOKEN=<your-api-token>
+```
+
+Notes:
+
+- LobeHub posts requests to `${BROWSERLESS_URL}/content`. When self-hosting, use the v2 image (`ghcr.io/browserless/chromium`)
+- `CRAWLER_IMPLS` accepts comma-separated values; crawlers are tried in order, so listing them as `naive,browserless` is recommended
 
 ## Common Verification Commands
 
@@ -231,6 +277,16 @@ curl http://localhost:8000/.well-known/openid-configuration
 
 ```bash
 docker compose exec searxng sed -n '1,120p' /etc/searxng/settings.yml
+```
+
+### Browserless Connectivity Check
+
+```bash
+# When using the built-in container. Send an empty request to /content and check the response code.
+curl -s -o /dev/null -w "%{http_code}\n" -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com"}' \
+  "http://localhost:3000/content?token=${BROWSERLESS_TOKEN}"
 ```
 
 ## Script Reference
@@ -322,13 +378,14 @@ TARGET_EMAIL='user@example.com' bash scripts/delete-user.sh --no-dry-run --confi
 | --- | --- |
 | [`docker-compose.yml`](./docker-compose.yml) | Production Compose definition |
 | [`.env.example`](./.env.example) | Environment variable template |
-| [`.env`](./.env) | Production environment variables |
+| [`.env`](./env) | Production environment variables |
 | [`setup.sh`](./setup.sh) | Setup for current merged configuration |
 | [`original-setup.sh`](./original-setup.sh) | Original deploy setup |
 | [`casdoor/init_data.json.exmaple`](./casdoor/init_data.json.exmaple) | Casdoor initial data template |
 | [`casdoor/init_data.json`](./casdoor/init_data.json) | Initial data loaded into Casdoor |
 | [`bucket.config.json`](./bucket.config.json) | RustFS bucket public access settings |
 | [`searxng/settings.yml`](./searxng/settings.yml) | SearXNG settings |
+| `browserless/` | (compose service only; persistence uses a named volume) |
 | [`grafana/`](./grafana) | Grafana datasource / dashboard / data |
 | [`prometheus/`](./prometheus) | Prometheus settings / data |
 | [`tempo/`](./tempo)| Tempo settings / data |
@@ -355,10 +412,14 @@ You don't need to read all of them. Start with these key items for smooth operat
 | `S3_ENDPOINT` | RustFS API endpoint | LobeHub storage destination |
 | `RUSTFS_ACCESS_KEY` | RustFS access key | Usually `admin` |
 | `RUSTFS_SECRET_KEY` | RustFS secret | Must be reviewed on first setup |
-| `COMPOSE_PROFILES` | Compose profile switching | `with-searxng` for built-in SearXNG |
+| `COMPOSE_PROFILES` | Compose profile switching | `with-searxng` / `with-browserless` (comma-separated) |
 | `SEARXNG_URL` | Search backend URL | Used for both built-in and external |
+| `CRAWLER_IMPLS` | Enabled crawler implementations (comma-separated) | e.g. `naive,browserless` |
+| `BROWSERLESS_URL` | Browserless API URL | Built-in: `http://browserless:3000` |
+| `BROWSERLESS_TOKEN` | Browserless auth token | Required when using the SaaS endpoint |
+| `BROWSERLESS_BLOCK_ADS` | Ad blocking (`1`/`0`) | Recommended: `1` |
+| `BROWSERLESS_STEALTH_MODE` | Stealth mode (`1`/`0`) | Set to `1` to bypass anti-bot detection |
 | `GF_SECURITY_ADMIN_PASSWORD` | Grafana admin password | Don't run with default value |
-| `CLOUDFLARE_TUNNEL_TOKEN` | Cloudflared startup token | Only needed when using Tunnel |
 
 Model / Provider notes:
 
@@ -452,6 +513,8 @@ Deleting the following directories will reset each respective service:
 - `tempo/data`
 - `prometheus/data`
 
+> Browserless only uses a named volume (`browserless-cache`) and has no host-side directory. To clear its cache, run `docker compose down -v` or `docker volume rm lobehub_browserless-cache`.
+
 ### Resetting Only LobeHub While Keeping Casdoor
 
 Important notes:
@@ -472,6 +535,7 @@ This means:
 - Custom providers are difficult to fully reproduce with `.env` alone; DB / UI / SQL-based management is more suitable
 - RustFS API currently assumes port `9000` in some places
 - Cloudflared is designed to be started separately after setting `CLOUDFLARE_TUNNEL_TOKEN`
+- Browserless is intended to run on the internal network only. If you expose it externally, always configure a reverse proxy and authentication
 
 ## Pre-Production Checklist
 
@@ -481,4 +545,5 @@ At minimum, verify the following before going to production:
 - Replaced secrets in `.env` with secure values
 - `APP_URL` / `AUTH_CASDOOR_ISSUER` / `S3_ENDPOINT` match your actual public configuration
 - Decided whether to use built-in or external SearXNG
+- Decided whether to use built-in or external Browserless, and set `BROWSERLESS_TOKEN`
 - Added initial Grafana dashboards if needed

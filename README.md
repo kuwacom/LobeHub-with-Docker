@@ -50,6 +50,7 @@ LobeHub を自己ホストするための `docker-compose` 構成です。
 | キャッシュ | Redis | セッション / キャッシュ |
 | オブジェクトストレージ | RustFS | S3 互換ストレージ |
 | 検索 | SearXNG | Online Search の検索バックエンド |
+| Web クローラ | Browserless | Online Search のクローラバックエンド（モダンページのレンダリング） |
 | 監視 | Grafana / Prometheus / Tempo / OTel Collector | メトリクス / トレース可視化 |
 | 公開経路 | Cloudflared | Cloudflare Tunnel 経由の公開 |
 
@@ -59,6 +60,7 @@ LobeHub を自己ホストするための `docker-compose` 構成です。
 - MinIO ではなく RustFS を使います
 - 永続化は Docker named volume ではなく、基本的にホスト側ディレクトリへ bind mount します
 - `with-searxng` profile により、内蔵 SearXNG と外部 SearXNG を切り替えられます
+- `with-browserless` profile により、内蔵 Browserless と外部 SaaS を切り替えられます
 
 ## 5 分で始める
 
@@ -97,7 +99,7 @@ docker compose pull
 
 ```bash
 docker compose up -d network-service postgresql redis rustfs rustfs-init tempo prometheus otel-collector casdoor
-docker compose up -d searxng
+docker compose up -d searxng browserless
 docker compose up -d lobe grafana
 ```
 
@@ -116,6 +118,8 @@ docker compose logs -f lobe casdoor rustfs grafana tempo prometheus --tail 200
 | `http://localhost:8000` | Casdoor 管理 UI / 認証 UI |
 | `http://localhost:9001` | RustFS Console |
 | `http://localhost:3000` | Grafana |
+
+> Browserless は内部ネットワーク専用（外部公開なし）で動かす前提です。デバッガ UI を開きたい場合は別途ポート転送を設定してください。
 
 ### 公開ポート
 
@@ -180,7 +184,7 @@ SEARXNG_URL=http://searxng:8080
 
 ```bash
 docker compose up -d network-service postgresql redis rustfs rustfs-init tempo prometheus otel-collector casdoor
-docker compose up -d searxng
+docker compose up -d searxng browserless
 docker compose up -d lobe grafana
 ```
 
@@ -204,6 +208,48 @@ docker compose up -d lobe grafana
 
 - 外部 SearXNG 側では `json` フォーマットを有効にしてください
 - `SEARXNG_BASE_URL` は SearXNG UI を別途公開する場合だけ実 URL に合わせて調整します
+
+### Browserless（Web クローラ）の使い方
+
+LobeHub の Online Search 機能は、検索結果のページ本文を抽出するためにクローラを使います。
+既定では組み込み済みの簡易クローラ (`naive`) が動きますが、JavaScript レンダリングが必要なモダンサイトを取りたい場合は Browserless を併用すると成功率が上がります。
+
+#### 内蔵 Browserless を使う場合
+
+`.env` の `COMPOSE_PROFILES` に `with-browserless` を追加し、`BROWSERLESS_URL` を compose サービスに向けます。
+
+```env
+COMPOSE_PROFILES=with-browserless,with-searxng
+CRAWLER_IMPLS=naive,browserless
+BROWSERLESS_URL=http://browserless:3000
+BROWSERLESS_TOKEN=change_this_browserless_token
+BROWSERLESS_BLOCK_ADS=1
+BROWSERLESS_STEALTH_MODE=0
+```
+
+起動:
+
+```bash
+docker compose up -d network-service postgresql redis rustfs rustfs-init tempo prometheus otel-collector casdoor
+docker compose up -d searxng browserless
+docker compose up -d lobe grafana
+```
+
+#### 外部 SaaS 版 Browserless を使う場合
+
+compose 内でコンテナを立てず、公式クラウド (https://chrome.browserless.io) や別ホストへ向ける場合は profile を外して URL / TOKEN だけ差し替えます。
+
+```env
+# COMPOSE_PROFILES から with-browserless を外す
+CRAWLER_IMPLS=browserless
+BROWSERLESS_URL=https://chrome.browserless.io
+BROWSERLESS_TOKEN=<your-api-token>
+```
+
+補足:
+
+- LobeHub 本体は BROWSERLESS_URL + `/content` エンドポイントへ POST リクエストを投げます。自己ホストする場合は v2 系イメージ (`ghcr.io/browserless/chromium`) を使ってください
+- `CRAWLER_IMPLS` はカンマ区切りで複数指定できます。前から順にフォールバックされるため `naive,browserless` のように並べるのが無難です
 
 ## よく使う確認コマンド
 
@@ -231,6 +277,16 @@ curl http://localhost:8000/.well-known/openid-configuration
 
 ```bash
 docker compose exec searxng sed -n '1,120p' /etc/searxng/settings.yml
+```
+
+### Browserless 疎通確認
+
+```bash
+# 内蔵コンテナを使っている場合。/content エンドポイントへ空リクエストを投げて応答を確認する。
+curl -s -o /dev/null -w "%{http_code}\n" -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com"}' \
+  "http://localhost:3000/content?token=${BROWSERLESS_TOKEN}"
 ```
 
 ## スクリプト一覧
@@ -329,6 +385,7 @@ TARGET_EMAIL='user@example.com' bash scripts/delete-user.sh --no-dry-run --confi
 | [`casdoor/init_data.json`](./casdoor/init_data.json) | Casdoor に読み込ませる初期データ |
 | [`bucket.config.json`](./bucket.config.json) | RustFS バケット公開設定 |
 | [`searxng/settings.yml`](./searxng/settings.yml) | SearXNG 設定 |
+| `browserless/` | （compose サービスのみ。永続化は named volume） |
 | [`grafana/`](./grafana) | Grafana datasource / dashboard / data |
 | [`prometheus/`](./prometheus) | Prometheus 設定 / data |
 | [`tempo/`](./tempo) | Tempo 設定 / data |
@@ -355,16 +412,20 @@ TARGET_EMAIL='user@example.com' bash scripts/delete-user.sh --no-dry-run --confi
 | `S3_ENDPOINT` | RustFS API 接続先 | LobeHub の保存先 |
 | `RUSTFS_ACCESS_KEY` | RustFS アクセスキー | 通常は `admin` |
 | `RUSTFS_SECRET_KEY` | RustFS シークレット | 初回で必ず見直す |
-| `COMPOSE_PROFILES` | Compose profile 切り替え | `with-searxng` で内蔵 SearXNG |
+| `COMPOSE_PROFILES` | Compose profile 切り替え | `with-searxng` / `with-browserless` をカンマ区切りで指定 |
 | `SEARXNG_URL` | 検索バックエンド URL | 内蔵 / 外部どちらでも使用 |
+| `CRAWLER_IMPLS` | 有効化するクローラ実装（カンマ区切り） | `naive,browserless` など |
+| `BROWSERLESS_URL` | Browserless API URL | 内蔵は `http://browserless:3000` |
+| `BROWSERLESS_TOKEN` | Browserless 認証トークン | 外部 SaaS 利用時は必須 |
+| `BROWSERLESS_BLOCK_ADS` | 広告ブロック有無 (`1`/`0`) | `1` 推奨 |
+| `BROWSERLESS_STEALTH_MODE` | ステルスモード有無 (`1`/`0`) | 反クローラ回避時に `1` |
 | `GF_SECURITY_ADMIN_PASSWORD` | Grafana 管理者パスワード | 初期値のまま運用しない |
-| `CLOUDFLARE_TUNNEL_TOKEN` | Cloudflared 起動用トークン | Tunnel を使う場合だけ必要 |
 
 モデル / provider 系の補足:
 
 - サーバー全体で共有したい値は `.env` に置きます
 - ユーザー単位の provider / model / keyVaults は DB に保存されます
-- custom provider は `.env` だけでは完全再現しづらく、DB / UI / SQL ベースの運用が向いています
+- custom provider は `.env` だけでは完全再現しづらいため、DB / UI / SQL ベースの運用が向いています
 
 ## 認証とユーザー運用
 
@@ -452,6 +513,8 @@ sudo chmod -R 755 rustfs
 - `tempo/data`
 - `prometheus/data`
 
+> Browserless は named volume (`browserless-cache`) のみ使用し、ホスト側ディレクトリは持ちません。キャッシュだけ消したい場合は `docker compose down -v` または `docker volume rm lobehub_browserless-cache` を実行してください。
+
 ### Casdoor を残して LobeHub だけ初期化したい場合
 
 注意点:
@@ -472,6 +535,7 @@ sudo chmod -R 755 rustfs
 - custom provider は `.env` だけで完全再現しづらいため、DB / UI / SQL ベース運用の方が向いています
 - RustFS API は現在 `9000` 前提の箇所があります
 - Cloudflared は `CLOUDFLARE_TUNNEL_TOKEN` を設定したあとに個別起動する前提です
+- Browserless は内部ネットワーク専用で動かす前提です。外部公開する場合はリバースプロキシと認証を必ず設定してください
 
 ## 最後に見るチェックリスト
 
@@ -481,4 +545,5 @@ sudo chmod -R 755 rustfs
 - `.env` のシークレット類を安全な値へ置き換えた
 - `APP_URL` / `AUTH_CASDOOR_ISSUER` / `S3_ENDPOINT` が実際の公開構成と一致している
 - SearXNG を内蔵で使うか外部で使うか決めた
+- Browserless を内蔵で使うか外部 SaaS で使うか、`BROWSERLESS_TOKEN` を設定した
 - 必要なら Grafana の初期ダッシュボードを追加した
