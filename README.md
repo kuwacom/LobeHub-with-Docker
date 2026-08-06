@@ -420,12 +420,14 @@ TARGET_EMAIL='user@example.com' bash scripts/delete-user.sh --no-dry-run --confi
 | `BROWSERLESS_BLOCK_ADS` | 広告ブロック有無 (`1`/`0`) | `1` 推奨 |
 | `BROWSERLESS_STEALTH_MODE` | ステルスモード有無 (`1`/`0`) | 反クローラ回避時に `1` |
 | `GF_SECURITY_ADMIN_PASSWORD` | Grafana 管理者パスワード | 初期値のまま運用しない |
+| `DEFAULT_FILES_CONFIG` | ナレッジ / メモリ埋め込みモデル | `embedding_model=<provider>/<model>` 形式。未設定時は `openai/text-embedding-3-small` にフォールバック |
 
 モデル / provider 系の補足:
 
 - サーバー全体で共有したい値は `.env` に置きます
 - ユーザー単位の provider / model / keyVaults は DB に保存されます
 - custom provider は `.env` だけでは完全再現しづらいため、DB / UI / SQL ベースの運用が向いています
+- **メモリ埋め込みモデルは `DEFAULT_FILES_CONFIG` でのみ指定可能**です。UI の「サービスモデル設定 → 記憶埋め込み」は LobeHub v2.2.x 時点ではサーバー側ルーティングに反映されないため、必ず環境変数で設定してください（詳細は [既知の注意点](#既知の注意点) を参照）
 
 ## 認証とユーザー運用
 
@@ -536,6 +538,7 @@ sudo chmod -R 755 rustfs
 - RustFS API は現在 `9000` 前提の箇所があります
 - Cloudflared は `CLOUDFLARE_TUNNEL_TOKEN` を設定したあとに個別起動する前提です
 - Browserless は内部ネットワーク専用で動かす前提です。外部公開する場合はリバースプロキシと認証を必ず設定してください
+- **メモリ埋め込みモデルのプロバイダは `DEFAULT_FILES_CONFIG` でのみ制御可能**です。UI の「サービスモデル設定 → 記憶埋め込み」(`systemAgent.userMemoryEmbedding`) は LobeHub v2.2.x 時点ではサーバー側の embedding ルーティングに反映されません。`DEFAULT_FILES_CONFIG` 未設定時は `openai/text-embedding-3-small` にフォールバックし、`openai` プロバイダの `keyVaults.baseURL` へリクエストが飛びます。OpenAI 互換ゲートウェイ (LiteLLM 等) に切り替える場合は `DEFAULT_FILES_CONFIG=embedding_model=litellm/BAAI/bge-m3` のように環境変数で明示指定してください
 
 ## 最後に見るチェックリスト
 
