@@ -27,6 +27,9 @@ services:
         condition: service_started
       postgresql:
         condition: service_healthy
+      # 拡張更新 (pg_search 等) の完了を待ってから LobeHub を起動する
+      postgresql-extension-migrator:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       rustfs:
@@ -132,6 +135,55 @@ services:
       timeout: 5s
       retries: 5
     restart: always
+    networks:
+      - lobe-network
+
+  # PostgreSQL 拡張の自動更新ジョブ
+  #
+  # LobeHub は ParadeDB (pg_search) に依存するが、Docker イメージを更新しても
+  # 既存 DB 内の拡張は自動更新されない。そのまま起動すると
+  #   error: unboxing minimum_should_match_ argument failed
+  # が発生してチャット不能になる (pg_search 0.22.x には minimum_should_match が無く、
+  # LobeHub v2.2.x が paradedb.boolean() で同引数を使うため)。
+  #
+  # このジョブは PostgreSQL の healthy 起動を待ってから ALTER EXTENSION を実行し、
+  # 終了次第 LobeHub を起動する。PostgreSQL 公式エントリポイントは変更しないため、
+  # シグナルハンドリングやグレースフルシャットダウンは安全に保たれる。
+  #
+  # 参照:
+  #   https://docs.paradedb.com/deploy/upgrading
+  #   https://github.com/paradedb/paradedb/releases/tag/v0.24.1 (minimum_should_match 追加)
+  postgresql-extension-migrator:
+    image: paradedb/paradedb:latest-pg17
+    container_name: lobe-postgres-migrator
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    environment:
+      - "PGPASSWORD=${POSTGRES_PASSWORD}"
+      - "POSTGRES_DB=${LOBE_DB_NAME}"
+    volumes:
+      - "./postgresql/update-extensions.sh:/usr/local/bin/update-extensions.sh:ro"
+    # psql で接続可能になるまで待ってから拡張更新を実行。
+    # 更新が不要 (既に最新) なら何もせず終了する。
+    # 失敗しても exit 0 を返すことで LobeHub 起動を止めない (ログで警告を残す)。
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        echo '[migrator] waiting for postgresql to accept connections...'
+        i=0
+        while [ $$i -lt 60 ]; do
+          if pg_isready -h postgresql -U postgres >/dev/null 2>&1; then
+            echo '[migrator] postgresql is ready.'
+            break
+          fi
+          i=$$((i + 1))
+          sleep 1
+        done
+        update-extensions.sh || { echo '[migrator] WARNING: extension update failed; continuing' >&2; }
+        echo '[migrator] done.'
+    restart: "no"
     networks:
       - lobe-network
 
