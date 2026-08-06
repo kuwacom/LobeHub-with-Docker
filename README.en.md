@@ -421,12 +421,14 @@ You don't need to read all of them. Start with these key items for smooth operat
 | `BROWSERLESS_BLOCK_ADS` | Ad blocking (`1`/`0`) | Recommended: `1` |
 | `BROWSERLESS_STEALTH_MODE` | Stealth mode (`1`/`0`) | Set to `1` to bypass anti-bot detection |
 | `GF_SECURITY_ADMIN_PASSWORD` | Grafana admin password | Don't run with default value |
+| `DEFAULT_FILES_CONFIG` | Knowledge / memory embedding model | Format: `embedding_model=<provider>/<model>`. Falls back to `openai/text-embedding-3-small` if unset |
 
 Model / Provider notes:
 
 - Values shared across the entire server go in `.env`
 - Per-user provider / model / keyVaults are stored in the database
 - Custom providers are difficult to fully reproduce with `.env` alone; DB / UI / SQL-based management is more suitable
+- **The memory embedding model can only be specified via `DEFAULT_FILES_CONFIG`.** The UI's "Service Model Settings → Memory Embedding" is not reflected in server-side routing as of LobeHub v2.2.x, so you must set it via environment variable (see [Known Caveats](#known-caveats) for details)
 
 ## Authentication and User Management
 
@@ -537,6 +539,7 @@ This means:
 - RustFS API currently assumes port `9000` in some places
 - Cloudflared is designed to be started separately after setting `CLOUDFLARE_TUNNEL_TOKEN`
 - Browserless is intended to run on the internal network only. If you expose it externally, always configure a reverse proxy and authentication
+- **The memory embedding model provider can only be controlled via `DEFAULT_FILES_CONFIG`.** The UI's "Service Model Settings → Memory Embedding" (`systemAgent.userMemoryEmbedding`) is not reflected in server-side embedding routing as of LobeHub v2.2.x. If `DEFAULT_FILES_CONFIG` is unset, it falls back to `openai/text-embedding-3-small` and requests go to the `openai` provider's `keyVaults.baseURL`. To use an OpenAI-compatible gateway (LiteLLM, etc.), specify it explicitly via environment variable, e.g. `DEFAULT_FILES_CONFIG=embedding_model=litellm/BAAI/bge-m3`
 - **The ParadeDB (`pg_search`) extension does not auto-update when the Docker image is updated.** The `postgresql-extension-migrator` service runs `ALTER EXTENSION pg_search UPDATE` on startup to keep it current. LobeHub v2.2.x uses the `minimum_should_match` argument (added in `pg_search` v0.24.1+), so an outdated extension causes `error: unboxing minimum_should_match_ argument failed` and breaks chat. See [ParadeDB Upgrading](https://docs.paradedb.com/deploy/upgrading) for details
 
 ## Pre-Production Checklist
