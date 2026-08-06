@@ -46,7 +46,7 @@ LobeHub を自己ホストするための `docker-compose` 構成です。
 | --- | --- | --- |
 | アプリ本体 | LobeHub | チャット UI / モデル呼び出し |
 | 認証 | Casdoor | SSO / ユーザー認証 |
-| DB | PostgreSQL | LobeHub / Casdoor の永続データ |
+| DB | PostgreSQL (ParadeDB) | LobeHub / Casdoor の永続データ。全文検索に ParadeDB (`pg_search`) 拡張を使用 |
 | キャッシュ | Redis | セッション / キャッシュ |
 | オブジェクトストレージ | RustFS | S3 互換ストレージ |
 | 検索 | SearXNG | Online Search の検索バックエンド |
@@ -391,6 +391,7 @@ TARGET_EMAIL='user@example.com' bash scripts/delete-user.sh --no-dry-run --confi
 | [`tempo/`](./tempo) | Tempo 設定 / data |
 | [`otel-collector/`](./otel-collector) | OTel Collector 設定 |
 | [`postgresql/data`](./postgresql/data) | PostgreSQL データ |
+| [`postgresql/update-extensions.sh`](./postgresql/update-extensions.sh) | ParadeDB / pgvector 拡張の自動更新スクリプト (マイグレーションコンテナが使用) |
 | [`redis/data`](./redis/data) | Redis データ |
 | [`rustfs/data`](./rustfs/data) | RustFS データ |
 | [`rustfs/logs`](./rustfs/logs) | RustFS ログ |
@@ -538,6 +539,7 @@ sudo chmod -R 755 rustfs
 - RustFS API は現在 `9000` 前提の箇所があります
 - Cloudflared は `CLOUDFLARE_TUNNEL_TOKEN` を設定したあとに個別起動する前提です
 - Browserless は内部ネットワーク専用で動かす前提です。外部公開する場合はリバースプロキシと認証を必ず設定してください
+- **ParadeDB (`pg_search`) 拡張は Docker イメージ更新時に自動追従しません**。`postgresql-extension-migrator` サービスが起動時に `ALTER EXTENSION pg_search UPDATE` を実行して最新化します。LobeHub v2.2.x は `pg_search` v0.24.1+ で追加された `minimum_should_match` 引数を使うため、拡張が古いと `error: unboxing minimum_should_match_ argument failed` でチャット不能になります。詳細は [ParadeDB Upgrading](https://docs.paradedb.com/deploy/upgrading) を参照
 - **メモリ埋め込みモデルのプロバイダは `DEFAULT_FILES_CONFIG` でのみ制御可能**です。UI の「サービスモデル設定 → 記憶埋め込み」(`systemAgent.userMemoryEmbedding`) は LobeHub v2.2.x 時点ではサーバー側の embedding ルーティングに反映されません。`DEFAULT_FILES_CONFIG` 未設定時は `openai/text-embedding-3-small` にフォールバックし、`openai` プロバイダの `keyVaults.baseURL` へリクエストが飛びます。OpenAI 互換ゲートウェイ (LiteLLM 等) に切り替える場合は `DEFAULT_FILES_CONFIG=embedding_model=litellm/BAAI/bge-m3` のように環境変数で明示指定してください
 
 ## 最後に見るチェックリスト

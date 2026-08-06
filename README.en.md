@@ -46,7 +46,7 @@ The components in this repository are as follows:
 | --- | --- | --- |
 | Application | LobeHub | Chat UI / Model invocation |
 | Authentication | Casdoor | SSO / User authentication |
-| Database | PostgreSQL | Persistent data for LobeHub / Casdoor |
+| Database | PostgreSQL (ParadeDB) | Persistent data for LobeHub / Casdoor. Uses ParadeDB (`pg_search`) extension for full-text search |
 | Cache | Redis | Sessions / Cache |
 | Object Storage | RustFS | S3-compatible storage |
 | Search | SearXNG | Search backend for Online Search |
@@ -391,6 +391,7 @@ TARGET_EMAIL='user@example.com' bash scripts/delete-user.sh --no-dry-run --confi
 | [`tempo/`](./tempo)| Tempo settings / data |
 | [`otel-collector/`](./otel-collector) | OTel Collector settings |
 | [`postgresql/data`](./postgresql/data) | PostgreSQL data |
+| [`postgresql/update-extensions.sh`](./postgresql/update-extensions.sh) | ParadeDB / pgvector extension auto-update script (used by the migration container) |
 | [`redis/data`](./redis/data) | Redis data |
 | [`rustfs/data`](./rustfs/data) | RustFS data |
 | [`rustfs/logs`](./rustfs/logs) | RustFS logs |
@@ -536,6 +537,7 @@ This means:
 - RustFS API currently assumes port `9000` in some places
 - Cloudflared is designed to be started separately after setting `CLOUDFLARE_TUNNEL_TOKEN`
 - Browserless is intended to run on the internal network only. If you expose it externally, always configure a reverse proxy and authentication
+- **The ParadeDB (`pg_search`) extension does not auto-update when the Docker image is updated.** The `postgresql-extension-migrator` service runs `ALTER EXTENSION pg_search UPDATE` on startup to keep it current. LobeHub v2.2.x uses the `minimum_should_match` argument (added in `pg_search` v0.24.1+), so an outdated extension causes `error: unboxing minimum_should_match_ argument failed` and breaks chat. See [ParadeDB Upgrading](https://docs.paradedb.com/deploy/upgrading) for details
 
 ## Pre-Production Checklist
 
